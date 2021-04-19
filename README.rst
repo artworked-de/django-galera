@@ -16,6 +16,7 @@ Setup
 #####
 
 .. code-block:: python
+
     DATABASES = {
         'default': {
             'ATOMIC_REQUESTS': True,
