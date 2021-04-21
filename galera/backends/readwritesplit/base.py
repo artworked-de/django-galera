@@ -4,11 +4,8 @@ import time
 
 from django.db import DEFAULT_DB_ALIAS, DatabaseError
 from django.db.backends.mysql import base
-from django.utils.asyncio import async_unsafe
 
 LOGGER = logging.getLogger(__name__)
-
-SET_SECONDARY_READ_ONLY = False
 
 
 class NodeState:
@@ -53,12 +50,16 @@ class CursorWrapper:
         return self._cursor
 
     def prepare(self, query):
-        rw_query = query is None or not query.startswith('SELECT ') or ' FOR UPDATE' in query or ' INTO ' in query
-        if rw_query and not query.startswith('SET SESSION '):
+        if query is None:
+            rw_query = True
+        else:
+            query = query.strip()
+            rw_query = not query.startswith('SELECT ')
+            rw_query = rw_query or query.endswith(' FOR UPDATE') or ' INTO ' in query
+        if rw_query:
             self._backend.secondary_synced = False
-        rw_query = rw_query or query.startswith('SELECT @')
-        if rw_query and not self._backend.autocommit and not self._backend.in_write_transaction:
-            self._backend.in_write_transaction = True
+            if not self._backend.autocommit and not self._backend.in_write_transaction:
+                self._backend.in_write_transaction = True
         primary_required = rw_query or self._backend.in_write_transaction
         if primary_required and not self._primary:
             self._primary = True
@@ -92,8 +93,9 @@ class CursorWrapper:
 class DatabaseWrapper(base.DatabaseWrapper):
     base_settings = None
     in_write_transaction = False
+    primary_connected = False
     secondary_synced = True
-    _secondary_connection = None
+    _secondary_wrapper = None
 
     def __init__(self, settings_dict, alias=DEFAULT_DB_ALIAS):
         self.base_settings = settings_dict.copy()
@@ -103,35 +105,20 @@ class DatabaseWrapper(base.DatabaseWrapper):
             del settings_dict['OPTIONS']['unix_socket']
         super(DatabaseWrapper, self).__init__(settings_dict, alias=alias)
 
-    @async_unsafe
     def close(self):
-        if self._secondary_connection is not None:
-            self._secondary_connection.close()
-            self._secondary_connection = None
+        if self._secondary_wrapper is not None:
+            self._secondary_wrapper.close()
+            self._secondary_wrapper = None
         super(DatabaseWrapper, self).close()
 
-    @async_unsafe
-    def create_cursor(self, name=None):
-        return CursorWrapper(self)
+    def connect(self):
+        self.connect_to_node(primary=True)
+        self.primary_connected = True
 
-    @async_unsafe
-    def create_primary_cursor(self, name=None):
-        cursor = self.connection.cursor()
-        return base.CursorWrapper(cursor)
-
-    @async_unsafe
-    def create_secondary_cursor(self, name=None):
-        cursor = self.secondary_connection.cursor()
-        return base.CursorWrapper(cursor)
-
-    def _set_autocommit(self, autocommit):
-        if autocommit and self.in_write_transaction:
-            self.in_write_transaction = False
-        return super(DatabaseWrapper, self)._set_autocommit(autocommit)
-
-    @property
-    def secondary_connection(self):
-        if self._secondary_connection is None:
+    def connect_to_node(self, primary=True):
+        if primary:
+            nodes = sorted(list(NODE_STATE.get_online_nodes()))
+        else:
             nodes = list(NODE_STATE.get_online_nodes())
             random.shuffle(nodes)
             preferred_host = self.base_settings.get('HOST', '')
@@ -139,71 +126,23 @@ class DatabaseWrapper(base.DatabaseWrapper):
                 if preferred_host in nodes:
                     nodes.remove(preferred_host)
                 nodes.insert(0, preferred_host)
-            for node in nodes:
-                LOGGER.info('connect %s to node %s' % ('secondary', node))
-                settings_dict = self.base_settings.copy()
-                settings_dict['ENGINE'] = 'django.db.backends.mysql'
-                for k, v in settings_dict['NODES'].get(node, {}).items():
-                    settings_dict[k] = v
-                del settings_dict['NODES']
-                self._secondary_connection = base.DatabaseWrapper(settings_dict, alias=self.alias)
-                try:
-                    self._secondary_connection.connect()
-                    cursor = self._secondary_connection.connection.cursor()
-                    cursor.execute(
-                        "SELECT variable_value "
-                        "FROM information_schema.global_status "
-                        "WHERE variable_name = 'wsrep_ready'")
-                    result = cursor.fetchone()
-                    cursor.close()
-                    if result[0] == 'ON':
-                        NODE_STATE.mark_online(node)
-                        break
-                    else:
-                        LOGGER.info('wsrep not ready')
-                except base.Database.Error as e:
-                    LOGGER.info(e, exc_info=True)
-                    NODE_STATE.mark_offline(node)
-            else:
-                raise DatabaseError('No nodes available. Tried: %s' % ', '.join(nodes))
-
-            if SET_SECONDARY_READ_ONLY:
-                q = 'SET SESSION TRANSACTION READ ONLY'
-                LOGGER.debug('Secondary: %s' % q)
-                cursor = self._secondary_connection.connection.cursor()
-                cursor.execute(q)
-                cursor.close()
-
-        return self._secondary_connection
-
-    def sync_wait_secondary(self):
-        cursor = self.connection.cursor()
-        cursor.execute('SELECT WSREP_LAST_SEEN_GTID()')
-        result = cursor.fetchone()
-        cursor.close()
-        primary_gtid = result[0].decode('utf-8')
-        if primary_gtid != '00000000-0000-0000-0000-000000000000:-1':
-            cursor = self.secondary_connection.connection.cursor()
-            cursor.execute('SELECT WSREP_SYNC_WAIT_UPTO_GTID(%s)', (primary_gtid,))
-            cursor.close()
-            LOGGER.debug('Secondary sync upto %s' % primary_gtid)
-        self.secondary_synced = True
-
-    @async_unsafe
-    def connect(self):
-        nodes = list(NODE_STATE.get_online_nodes())
-        nodes = sorted(nodes)
         for node in nodes:
-            LOGGER.info('connect %s to node %s' % ('primary', node))
+            LOGGER.info('connect %s to node %s' % ('primary' if primary else 'secondary', node))
             settings_dict = self.base_settings.copy()
             settings_dict['ENGINE'] = 'django.db.backends.mysql'
             for k, v in settings_dict['NODES'].get(node, {}).items():
                 settings_dict[k] = v
             del settings_dict['NODES']
-            self.settings_dict = settings_dict
             try:
-                super(DatabaseWrapper, self).connect()
-                cursor = self.connection.cursor()
+                if primary:
+                    self.settings_dict = settings_dict
+                    super(DatabaseWrapper, self).connect()
+                    connection = self.connection
+                else:
+                    self._secondary_wrapper = base.DatabaseWrapper(settings_dict, alias=self.alias)
+                    self._secondary_wrapper.connect()
+                    connection = self._secondary_wrapper.connection
+                cursor = connection.cursor()
                 cursor.execute(
                     "SELECT variable_value "
                     "FROM information_schema.global_status "
@@ -220,3 +159,41 @@ class DatabaseWrapper(base.DatabaseWrapper):
                 NODE_STATE.mark_offline(node)
         else:
             raise DatabaseError('No nodes available. Tried: %s' % ', '.join(nodes))
+
+    def create_cursor(self, name=None):
+        if not self.primary_connected:
+            return super(DatabaseWrapper, self).create_cursor(name=name)
+        else:
+            return CursorWrapper(self)
+
+    def create_primary_cursor(self):
+        cursor = self.connection.cursor()
+        return base.CursorWrapper(cursor)
+
+    def create_secondary_cursor(self):
+        cursor = self.secondary_wrapper.cursor()
+        return base.CursorWrapper(cursor)
+
+    @property
+    def secondary_wrapper(self):
+        if self._secondary_wrapper is None:
+            self.connect_to_node(primary=False)
+        return self._secondary_wrapper
+
+    def _set_autocommit(self, autocommit):
+        if autocommit and self.in_write_transaction:
+            self.in_write_transaction = False
+        return super(DatabaseWrapper, self)._set_autocommit(autocommit)
+
+    def sync_wait_secondary(self):
+        cursor = self.connection.cursor()
+        cursor.execute('SELECT WSREP_LAST_SEEN_GTID()')
+        result = cursor.fetchone()
+        cursor.close()
+        primary_gtid = result[0].decode('utf-8')
+        if primary_gtid != '00000000-0000-0000-0000-000000000000:-1':
+            cursor = self.secondary_wrapper.connection.cursor()
+            cursor.execute('SELECT WSREP_SYNC_WAIT_UPTO_GTID(%s)', (primary_gtid,))
+            cursor.close()
+            LOGGER.debug('Secondary sync upto %s' % primary_gtid)
+        self.secondary_synced = True
