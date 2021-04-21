@@ -1,7 +1,6 @@
 from unittest import mock
 
 from django import db
-from django.db import DEFAULT_DB_ALIAS
 from django.db.backends.mysql import base
 from django.test import SimpleTestCase
 
@@ -12,14 +11,14 @@ class ReadWriteSplitBackendTestCase(SimpleTestCase):
     def setUp(self):
         backend.NODE_STATE = backend.NodeState()
         self.connection = db.ConnectionHandler(settings={
-            DEFAULT_DB_ALIAS: {
+            db.DEFAULT_DB_ALIAS: {
                 'ENGINE': 'galera.backends.readwritesplit',
                 'NODES': {
                     'db1': {},
                     'db2': {},
                 }
             }
-        })[DEFAULT_DB_ALIAS]
+        })[db.DEFAULT_DB_ALIAS]
 
     @mock.patch('django.db.backends.mysql.base.Database.connect')
     def test_primary_online_none(self, mock_connect):
