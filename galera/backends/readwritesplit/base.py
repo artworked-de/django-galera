@@ -101,6 +101,8 @@ class DatabaseWrapper(base.DatabaseWrapper):
         self.base_settings = settings_dict.copy()
         if 'NODES' in settings_dict:
             NODE_STATE.add_nodes(settings_dict['NODES'])
+        else:
+            raise DatabaseError('No nodes defined in database settings')
         if 'OPTIONS' in settings_dict and 'unix_socket' in settings_dict['OPTIONS']:
             del settings_dict['OPTIONS']['unix_socket']
         super(DatabaseWrapper, self).__init__(settings_dict, alias=alias)
