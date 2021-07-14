@@ -17,6 +17,9 @@ setup(
     license='MIT',
     packages=(
         'galera',
+        'galera.backends',
+        'galera.backends.readwritesplit',
+        'galera.migrations',
     ),
     classifiers=(
         'Development Status :: 2 - Pre-Alpha',
