@@ -57,8 +57,8 @@ class CursorWrapper:
             rw_query = not query.startswith('SELECT ')
             rw_query = rw_query or query.endswith(' FOR UPDATE') or ' INTO ' in query
         if rw_query:
-            self._backend.secondary_synced = False
             if not self._backend.autocommit and not self._backend.in_write_transaction:
+                self._backend.secondary_synced = False
                 self._backend.in_write_transaction = True
         primary_required = rw_query or self._backend.in_write_transaction
         if primary_required and not self._primary:
