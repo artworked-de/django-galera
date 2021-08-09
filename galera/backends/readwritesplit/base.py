@@ -150,13 +150,14 @@ class CursorWrapper:
             if error_code == 2006: # server has gone away
                 autocommit = self._backend.autocommit
                 history = copy(self._backend.failover_history)
+                history_size = self._backend.failover_history_size
                 # try to gracefully close the original cursor and connection even if it will most certainly fail
                 try:
                     self._cursor.close()
                 except Exception as e:
                     LOGGER.debug('Could not close cursor after error: ' + str(e), exc_info=True)
                 try:
-                    self._backend.connection.close()
+                    self._backend.close()
                 except Exception as e:
                     LOGGER.debug('Could not close connection after error: ' + str(e), exc_info=True)
                 self._backend.connection = None
@@ -164,6 +165,7 @@ class CursorWrapper:
                 self._backend.connect()
                 self._backend.set_autocommit(autocommit)
                 self._backend.failover_history = history
+                self._backend.failover_history_size = history_size
                 try:
                     raise exc
                 except Exception as e:
