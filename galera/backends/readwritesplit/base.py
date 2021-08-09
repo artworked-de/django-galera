@@ -308,7 +308,10 @@ class DatabaseWrapper(base.DatabaseWrapper):
 
     def replay_history(self):
         for x, entry in enumerate(self.failover_history, start=1):
-            cursor = self.connection.cursor()
+            if self.in_write_transaction:
+                cursor = self.connection.cursor()
+            else:
+                cursor = self.secondary_wrapper.connection.cursor()
             for attr_name, args, kwargs, check in entry:
                 attr = getattr(cursor, attr_name)
                 if args is None:
