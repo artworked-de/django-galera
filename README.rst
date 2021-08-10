@@ -7,10 +7,12 @@ A Django application providing a database backend for MariaDB Galera Cluster.
 
 Features
 ########
-* Loadbalancing
-* Read/Write Splitting
-* Optimistic transactions on slaves
-* Automatic and transparent failover on connection failures with transaction replay
+* Loadbalancing: Randomly choose a secondary node for readonly queries to balance load over multiple database servers
+* Read/Write Splitting: Route all writes to a single primary node, which will greatly reduce deadlocks
+* Optimistic transactions on secondary nodes: Switching to the primary node only once a write happens
+* Automatic and transparent failover: On connection failures the backend will reconnect to a different node. After that
+  a transaction replay will ensure data consistency, making a failure of both primary and secondary nodes transparent to
+  the application
 
 Setup
 #####
