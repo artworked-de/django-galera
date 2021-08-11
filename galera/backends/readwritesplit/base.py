@@ -189,7 +189,7 @@ class DatabaseWrapper(base.DatabaseWrapper):
 
     def __init__(self, settings_dict, alias=DEFAULT_DB_ALIAS):
         self.base_settings = settings_dict.copy()
-        NODE_STATE.add_nodes(settings_dict.pop('NODES', ()))
+        NODE_STATE.add_nodes(settings_dict.get('NODES', ()))
         if 'OPTIONS' not in settings_dict:
             settings_dict['OPTIONS'] = dict()
         settings_dict['OPTIONS'].pop('unix_socket', None)
