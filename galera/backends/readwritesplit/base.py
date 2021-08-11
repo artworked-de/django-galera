@@ -314,7 +314,7 @@ class DatabaseWrapper(base.DatabaseWrapper):
                 else:
                     result = attr(*args, **kwargs)
                 if check != hashlib.sha1(pprint.pformat(result).encode()).hexdigest():
-                    raise Exception('Replay checksum does not match')
+                    raise DatabaseError('Replay checksum does not match')
 
             # do not close the cursor if this is the last history entry
             # the cursor should then have a comparable state as the original cursor
