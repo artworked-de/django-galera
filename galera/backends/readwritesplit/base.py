@@ -48,9 +48,9 @@ class CursorWrapper:
     @property
     def cursor(self):
         if self._cursor is None:
+            self._backend.failover_history.append([])
             if self._primary:
                 self._cursor = self._backend.create_primary_cursor()
-                self._backend.failover_history.append([])
             else:
                 self._cursor = self._backend.create_secondary_cursor()
         return self._cursor
@@ -107,7 +107,7 @@ class CursorWrapper:
             self._handle_exc(e)
             obj = getattr(self._cursor, item)
 
-        if item != '_executed' and self._primary and self._backend.failover_enable:
+        if self._backend.failover_enable:
             def wrap(func):
                 def decor(*args, **kwargs):
                     try:
@@ -284,6 +284,7 @@ class DatabaseWrapper(base.DatabaseWrapper):
     def _set_autocommit(self, autocommit):
         if autocommit:
             self.in_write_transaction = False
+        if autocommit != self.autocommit:
             self.failover_history.clear()
             self.failover_history_size = 0
         return super(DatabaseWrapper, self)._set_autocommit(autocommit)
