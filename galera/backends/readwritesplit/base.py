@@ -6,7 +6,7 @@ import random
 import time
 from copy import copy
 
-from django.db import DEFAULT_DB_ALIAS, DatabaseError
+from django.db import DEFAULT_DB_ALIAS, DatabaseError, OperationalError
 from django.db.backends.mysql import base
 
 LOGGER = logging.getLogger(__name__)
@@ -103,7 +103,7 @@ class CursorWrapper:
 
         try:
             obj = getattr(self.cursor, item)
-        except base.Database.OperationalError as e:
+        except OperationalError as e:
             self._handle_exc(e)
             obj = getattr(self._cursor, item)
 
@@ -112,7 +112,7 @@ class CursorWrapper:
                 def decor(*args, **kwargs):
                     try:
                         ret = func(*args, **kwargs)
-                    except base.Database.OperationalError as exc:
+                    except OperationalError as exc:
                         self._handle_exc(exc)
                         ret = getattr(self._cursor, func.__name__)(*args, **kwargs)
                     if self._backend.failover_history:
