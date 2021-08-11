@@ -296,11 +296,13 @@ class DatabaseWrapper(base.DatabaseWrapper):
             result = cursor.fetchone()
             cursor.close()
             primary_gtid = result[0].decode('utf-8')
-            if primary_gtid != '00000000-0000-0000-0000-000000000000:-1':
-                cursor = self.secondary_wrapper.connection.cursor()
+            cursor = self.secondary_wrapper.connection.cursor()
+            try:
                 cursor.execute('SELECT WSREP_SYNC_WAIT_UPTO_GTID(%s)', (primary_gtid,))
-                cursor.close()
                 LOGGER.debug('Secondary sync upto %s' % primary_gtid)
+            except base.Database.OperationalError as e:
+                LOGGER.warning('Could not sync secondary upto %s: %s' % (primary_gtid, str(e)))
+            cursor.close()
         self.secondary_synced = True
 
     def replay_history(self):
