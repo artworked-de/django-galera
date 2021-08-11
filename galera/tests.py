@@ -9,7 +9,7 @@ from galera.backends.readwritesplit import base as backend
 
 class ReadWriteSplitBackendTestCase(SimpleTestCase):
     def setUp(self):
-        backend.NODE_STATE = backend.NodeState()
+        backend.NODE_STATE = backend.NodeState(dict())
         self.connection = db.ConnectionHandler(settings={
             db.DEFAULT_DB_ALIAS: {
                 'ENGINE': 'galera.backends.readwritesplit',
