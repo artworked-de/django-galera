@@ -1,5 +1,6 @@
 import hashlib
 import logging
+import multiprocessing
 import pprint
 import random
 import time
@@ -14,8 +15,8 @@ LOGGER = logging.getLogger(__name__)
 class NodeState:
     RETRY_INTERVAL = 30
 
-    def __init__(self):
-        self.nodes = dict()
+    def __init__(self, store):
+        self.nodes = store
 
     def add_nodes(self, nodes):
         for node in nodes:
@@ -34,7 +35,7 @@ class NodeState:
         return (x for x, y in self.nodes.items() if y is None or time.time() > y + self.RETRY_INTERVAL)
 
 
-NODE_STATE = NodeState()
+NODE_STATE = NodeState(multiprocessing.Manager().dict())
 
 
 class CursorWrapper:
