@@ -34,6 +34,8 @@ Setup
             'OPTIONS': {
                 'failover_enable': True,  # enable transparent failover with transaction replay
                 'failover_history_limit': 1000,  # disable replay for connections reaching this limit (saves memory)
+                'wsrep_sync_after_write': False,  # set True to explicitly wait until writes from primary have been applied before reading from secondary
+                # options are also attributes of django.db.connection and can be changed on the fly for the current connection
             },
             'NODES': {
                 'db1': {'HOST': '10.0.1.2'},  # first node becomes primary and is preferred for read/write transactions

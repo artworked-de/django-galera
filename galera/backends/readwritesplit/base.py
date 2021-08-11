@@ -197,6 +197,7 @@ class DatabaseWrapper(base.DatabaseWrapper):
         self.failover_history_limit = settings_dict['OPTIONS'].pop('failover_history_limit', 1000)
         self.failover_history = list()
         self.failover_history_size = 0
+        self.wsrep_sync_after_write = settings_dict['OPTIONS'].pop('wsrep_sync_after_write', False)
         super(DatabaseWrapper, self).__init__(settings_dict, alias=alias)
 
     def close(self):
@@ -287,16 +288,17 @@ class DatabaseWrapper(base.DatabaseWrapper):
         return super(DatabaseWrapper, self)._set_autocommit(autocommit)
 
     def sync_wait_secondary(self):
-        cursor = self.connection.cursor()
-        cursor.execute('SELECT WSREP_LAST_SEEN_GTID()')
-        result = cursor.fetchone()
-        cursor.close()
-        primary_gtid = result[0].decode('utf-8')
-        if primary_gtid != '00000000-0000-0000-0000-000000000000:-1':
-            cursor = self.secondary_wrapper.connection.cursor()
-            cursor.execute('SELECT WSREP_SYNC_WAIT_UPTO_GTID(%s)', (primary_gtid,))
+        if self.wsrep_sync_after_write:
+            cursor = self.connection.cursor()
+            cursor.execute('SELECT WSREP_LAST_SEEN_GTID()')
+            result = cursor.fetchone()
             cursor.close()
-            LOGGER.debug('Secondary sync upto %s' % primary_gtid)
+            primary_gtid = result[0].decode('utf-8')
+            if primary_gtid != '00000000-0000-0000-0000-000000000000:-1':
+                cursor = self.secondary_wrapper.connection.cursor()
+                cursor.execute('SELECT WSREP_SYNC_WAIT_UPTO_GTID(%s)', (primary_gtid,))
+                cursor.close()
+                LOGGER.debug('Secondary sync upto %s' % primary_gtid)
         self.secondary_synced = True
 
     def replay_history(self):
