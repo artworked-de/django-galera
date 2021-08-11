@@ -111,8 +111,8 @@ class CursorWrapper:
                 def decor(*args, **kwargs):
                     try:
                         ret = func(*args, **kwargs)
-                    except base.Database.OperationalError as e:
-                        self._handle_exc(e)
+                    except base.Database.OperationalError as exc:
+                        self._handle_exc(exc)
                         ret = getattr(self._cursor, func.__name__)(*args, **kwargs)
                     if self._backend.failover_history:
                         self._backend.failover_history[-1].append((
@@ -147,7 +147,7 @@ class CursorWrapper:
         self._in_handle_exc = True
         if self._backend.failover_enable:
             error_code = exc.args[0]
-            if error_code == 2006: # server has gone away
+            if error_code == 2006:  # server has gone away
                 autocommit = self._backend.autocommit
                 history = copy(self._backend.failover_history)
                 history_size = self._backend.failover_history_size
