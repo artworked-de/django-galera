@@ -189,21 +189,14 @@ class DatabaseWrapper(base.DatabaseWrapper):
 
     def __init__(self, settings_dict, alias=DEFAULT_DB_ALIAS):
         self.base_settings = settings_dict.copy()
-        self.failover_enable = False
+        NODE_STATE.add_nodes(settings_dict.pop('NODES', ()))
+        if 'OPTIONS' not in settings_dict:
+            settings_dict['OPTIONS'] = dict()
+        settings_dict['OPTIONS'].pop('unix_socket', None)
+        self.failover_enable = settings_dict['OPTIONS'].pop('failover_enable', False)
+        self.failover_history_limit = settings_dict['OPTIONS'].pop('failover_history_limit', 1000)
         self.failover_history = list()
-        self.failover_history_limit = 1000
         self.failover_history_size = 0
-        if 'NODES' in settings_dict:
-            NODE_STATE.add_nodes(settings_dict['NODES'])
-        if 'OPTIONS' in settings_dict:
-            if 'failover_enable' in settings_dict['OPTIONS']:
-                self.failover_enable = settings_dict['OPTIONS']['failover_enable']
-                del settings_dict['OPTIONS']['failover_enable']
-            if 'failover_history_limit' in settings_dict['OPTIONS']:
-                self.failover_history_limit = settings_dict['OPTIONS']['failover_history_limit']
-                del settings_dict['OPTIONS']['failover_history_limit']
-            if 'unix_socket' in settings_dict['OPTIONS']:
-                del settings_dict['OPTIONS']['unix_socket']
         super(DatabaseWrapper, self).__init__(settings_dict, alias=alias)
 
     def close(self):
