@@ -32,7 +32,7 @@ Setup
             'OPTIONS': {
                 'failover_enable': True,  # enable transparent failover with transaction replay
                 'failover_history_limit': 1000,  # disable replay for connections reaching this limit (saves memory)
-                'wsrep_sync_after_write': False,  # set True to explicitly wait until writes from primary have been applied before reading from secondary
+                'wsrep_sync_after_write': True,  # explicitly wait until writes from primary have been applied before reading from secondary
                 # options are also attributes of django.db.connection and can be changed on the fly for the current connection
             },
             'NODES': {
