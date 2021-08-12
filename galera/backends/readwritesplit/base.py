@@ -197,8 +197,7 @@ class DatabaseWrapper(base.DatabaseWrapper):
             self._secondary_wrapper.close()
             self._secondary_wrapper = None
         super(DatabaseWrapper, self).close()
-        self.failover_history.clear()
-        self.failover_history_size = 0
+        self.failover_history_reset()
 
     def connect(self):
         self.connect_to_node(primary=True)
@@ -254,8 +253,7 @@ class DatabaseWrapper(base.DatabaseWrapper):
             return super(DatabaseWrapper, self).create_cursor(name=name)
         else:
             if self.autocommit:
-                self.failover_history.clear()
-                self.failover_history_size = 0
+                self.failover_history_reset()
             return CursorWrapper(self)
 
     def create_primary_cursor(self):
