@@ -1,10 +1,10 @@
+import copy
 import hashlib
 import logging
 import multiprocessing
 import pprint
 import random
 import time
-from copy import copy
 
 from django.db import DEFAULT_DB_ALIAS, DatabaseError
 from django.db.backends.mysql import base
@@ -144,7 +144,7 @@ class CursorWrapper:
             error_code = exc.args[0]
             if error_code == 2006:  # server has gone away
                 autocommit = self._backend.autocommit
-                history = copy(self._backend.failover_history)
+                history = copy.copy(self._backend.failover_history)
                 history_size = self._backend.failover_history_size
                 # try to gracefully close the original cursor and connection even if it will most certainly fail
                 try:
@@ -182,15 +182,15 @@ class DatabaseWrapper(base.DatabaseWrapper):
     _secondary_wrapper = None
 
     def __init__(self, settings_dict, alias=DEFAULT_DB_ALIAS):
-        self.base_settings = settings_dict.copy()
-        NODE_STATE.add_nodes(settings_dict.get('NODES', ()))
-        if 'OPTIONS' not in settings_dict:
-            settings_dict['OPTIONS'] = dict()
-        settings_dict['OPTIONS'].pop('unix_socket', None)
-        self.failover_enable = settings_dict['OPTIONS'].pop('failover_enable', False)
-        self.failover_history_limit = settings_dict['OPTIONS'].pop('failover_history_limit', 1000)
-        self.wsrep_sync_after_write = settings_dict['OPTIONS'].pop('wsrep_sync_after_write', False)
-        super(DatabaseWrapper, self).__init__(settings_dict, alias=alias)
+        self.base_settings = copy.deepcopy(settings_dict)
+        NODE_STATE.add_nodes(self.base_settings.get('NODES', ()))
+        if 'OPTIONS' not in self.base_settings:
+            self.base_settings['OPTIONS'] = dict()
+        self.base_settings['OPTIONS'].pop('unix_socket', None)
+        self.failover_enable = self.base_settings['OPTIONS'].pop('failover_enable', False)
+        self.failover_history_limit = self.base_settings['OPTIONS'].pop('failover_history_limit', 1000)
+        self.wsrep_sync_after_write = self.base_settings['OPTIONS'].pop('wsrep_sync_after_write', False)
+        super(DatabaseWrapper, self).__init__(self.base_settings, alias=alias)
 
     def close(self):
         if self._secondary_wrapper is not None:
@@ -216,7 +216,7 @@ class DatabaseWrapper(base.DatabaseWrapper):
                 nodes.insert(0, preferred_host)
         for node in nodes:
             LOGGER.info('connect %s to node %s' % ('primary' if primary else 'secondary', node))
-            settings_dict = self.base_settings.copy()
+            settings_dict = copy.deepcopy(self.base_settings)
             settings_dict['ENGINE'] = 'django.db.backends.mysql'
             for k, v in settings_dict['NODES'].get(node, {}).items():
                 settings_dict[k] = v
