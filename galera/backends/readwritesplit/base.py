@@ -63,8 +63,8 @@ class CursorWrapper:
             rw_query = not query.startswith('SELECT ')
             rw_query = rw_query or query.endswith(' FOR UPDATE') or ' INTO ' in query
         if rw_query:
+            self._backend.secondary_synced = False
             if not self._backend.autocommit and not self._backend.in_write_transaction:
-                self._backend.secondary_synced = False
                 self._backend.in_write_transaction = True
         primary_required = rw_query or self._backend.in_write_transaction
         if primary_required and not self._primary:
@@ -192,7 +192,7 @@ class DatabaseWrapper(base.DatabaseWrapper):
         self.base_settings['OPTIONS'].pop('unix_socket', None)
         self.failover_enable = self.base_settings['OPTIONS'].pop('failover_enable', False)
         self.failover_history_limit = self.base_settings['OPTIONS'].pop('failover_history_limit', 1000)
-        self.wsrep_sync_after_write = self.base_settings['OPTIONS'].pop('wsrep_sync_after_write', False)
+        self.wsrep_sync_after_write = self.base_settings['OPTIONS'].pop('wsrep_sync_after_write', True)
         super(DatabaseWrapper, self).__init__(self.base_settings, alias=alias)
 
     def close(self):
@@ -309,7 +309,7 @@ class DatabaseWrapper(base.DatabaseWrapper):
     def sync_wait_secondary(self):
         if self.wsrep_sync_after_write:
             cursor = self.connection.cursor()
-            cursor.execute('SELECT WSREP_LAST_SEEN_GTID()')
+            cursor.execute('SELECT WSREP_LAST_WRITTEN_GTID()')
             result = cursor.fetchone()
             cursor.close()
             primary_gtid = result[0].decode('utf-8')
