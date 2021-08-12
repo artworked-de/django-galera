@@ -142,7 +142,10 @@ class CursorWrapper:
         self._in_handle_exc = True
         if self._backend.failover_active:
             error_code = exc.args[0]
-            if error_code == 2006:  # server has gone away
+            if error_code in (
+                    2006,  # MySQL server has gone away
+                    2013,  # Lost connection to MySQL server during query
+            ):
                 autocommit = self._backend.autocommit
                 history = copy.copy(self._backend.failover_history)
                 history_size = self._backend.failover_history_size
