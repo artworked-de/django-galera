@@ -8,7 +8,7 @@ with open(readme) as f:
 
 setup(
     name='django-galera',
-    version='0.5',
+    version='0.6',
     description='Django database backend for MariaDB Galera Cluster',
     long_description=long_description,
     url='https://github.com/pogowurst/django-galera',
@@ -22,7 +22,7 @@ setup(
         'galera.migrations',
     ),
     classifiers=(
-        'Development Status :: 3 - Alpha',
+        'Development Status :: 4 - Beta',
         'Intended Audience :: Developers',
         'Operating System :: OS Independent',
         'Programming Language :: Python :: 3',
