@@ -3,8 +3,6 @@ django-galera
 *************
 A Django application providing a database backend for MariaDB Galera Cluster.
 
-.. important:: This project is in development and not recommended for being used in production.
-
 Features
 ########
 * Loadbalancing: Randomly choose a secondary node for readonly queries to balance load over multiple database servers
