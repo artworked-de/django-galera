@@ -190,7 +190,7 @@ class DatabaseWrapper(base.DatabaseWrapper):
         if 'OPTIONS' not in self.base_settings:
             self.base_settings['OPTIONS'] = dict()
         self.base_settings['OPTIONS'].pop('unix_socket', None)
-        self.failover_enable = self.base_settings['OPTIONS'].pop('failover_enable', False)
+        self.failover_enable = self.base_settings['OPTIONS'].pop('failover_enable', True)
         self.failover_history_limit = self.base_settings['OPTIONS'].pop('failover_history_limit', 1000)
         self.wsrep_sync_after_write = self.base_settings['OPTIONS'].pop('wsrep_sync_after_write', True)
         super(DatabaseWrapper, self).__init__(self.base_settings, alias=alias)
