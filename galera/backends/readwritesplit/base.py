@@ -6,7 +6,7 @@ import random
 import time
 from copy import copy
 
-from django.db import DEFAULT_DB_ALIAS, DatabaseError, OperationalError
+from django.db import DEFAULT_DB_ALIAS, DatabaseError
 from django.db.backends.mysql import base
 
 LOGGER = logging.getLogger(__name__)
@@ -93,49 +93,43 @@ class CursorWrapper:
             self._cursor = None
 
     def _failover_cursor(self, item):
-        # clear and disable query history if size exceeds limit for this connection
-        if self._backend.failover_enable:
-            if self._backend.failover_history_size >= self._backend.failover_history_limit:
-                LOGGER.info('Failover history limit reached. Disabling history for this connection.')
-                self._backend.failover_history.clear()
-                self._backend.failover_history_size = 0
-                self._backend.failover_history_enable = False
+        if not self._backend.failover_active:
+            return getattr(self.cursor, item)
 
         try:
             obj = getattr(self.cursor, item)
-        except OperationalError as e:
+        except DatabaseError as e:
             self._handle_exc(e)
             obj = getattr(self._cursor, item)
 
-        if self._backend.failover_enable:
-            def wrap(func):
-                def decor(*args, **kwargs):
-                    try:
-                        ret = func(*args, **kwargs)
-                    except OperationalError as exc:
-                        self._handle_exc(exc)
-                        ret = getattr(self._cursor, func.__name__)(*args, **kwargs)
-                    if self._backend.failover_history:
-                        self._backend.failover_history[-1].append((
-                            func.__name__,
-                            args,
-                            kwargs,
-                            hashlib.sha1(pprint.pformat(ret).encode()).hexdigest()
-                        ))
-                        self._backend.failover_history_size += 1
-                    return ret
-                return decor
-            if hasattr(obj, '__call__'):
-                obj = wrap(obj)
-            else:
+        def wrap(func):
+            def decor(*args, **kwargs):
+                try:
+                    ret = func(*args, **kwargs)
+                except DatabaseError as exc:
+                    self._handle_exc(exc)
+                    ret = getattr(self._cursor, func.__name__)(*args, **kwargs)
                 if self._backend.failover_history:
                     self._backend.failover_history[-1].append((
-                        item,
-                        None,
-                        None,
-                        hashlib.sha1(pprint.pformat(obj).encode()).hexdigest()
+                        func.__name__,
+                        args,
+                        kwargs,
+                        hashlib.sha1(pprint.pformat(ret).encode()).hexdigest()
                     ))
                     self._backend.failover_history_size += 1
+                return ret
+            return decor
+        if hasattr(obj, '__call__'):
+            obj = wrap(obj)
+        else:
+            if self._backend.failover_history:
+                self._backend.failover_history[-1].append((
+                    item,
+                    None,
+                    None,
+                    hashlib.sha1(pprint.pformat(obj).encode()).hexdigest()
+                ))
+                self._backend.failover_history_size += 1
 
         return obj
 
@@ -146,7 +140,7 @@ class CursorWrapper:
         if self._in_handle_exc:
             raise exc
         self._in_handle_exc = True
-        if self._backend.failover_enable:
+        if self._backend.failover_active:
             error_code = exc.args[0]
             if error_code == 2006:  # server has gone away
                 autocommit = self._backend.autocommit
@@ -167,13 +161,7 @@ class CursorWrapper:
                 self._backend.set_autocommit(autocommit)
                 self._backend.failover_history = history
                 self._backend.failover_history_size = history_size
-                try:
-                    raise exc
-                except Exception as e:
-                    logging.getLogger('django').error(
-                        'Replaying %d cursors from failover history after %s' % (len(history), str(e)),
-                        exc_info=True
-                    )
+                LOGGER.warning('Replaying %d cursors from failover history after %s' % (len(history), str(exc)))
                 self._cursor = self._backend.replay_history()
                 self._in_handle_exc = False
                 return
@@ -183,9 +171,14 @@ class CursorWrapper:
 
 class DatabaseWrapper(base.DatabaseWrapper):
     base_settings = None
+    failover_history = list()
+    failover_history_size = 0
     in_write_transaction = False
     primary_connected = False
     secondary_synced = True
+
+    _failover_active = None
+    _failover_enable = None
     _secondary_wrapper = None
 
     def __init__(self, settings_dict, alias=DEFAULT_DB_ALIAS):
@@ -196,8 +189,6 @@ class DatabaseWrapper(base.DatabaseWrapper):
         settings_dict['OPTIONS'].pop('unix_socket', None)
         self.failover_enable = settings_dict['OPTIONS'].pop('failover_enable', False)
         self.failover_history_limit = settings_dict['OPTIONS'].pop('failover_history_limit', 1000)
-        self.failover_history = list()
-        self.failover_history_size = 0
         self.wsrep_sync_after_write = settings_dict['OPTIONS'].pop('wsrep_sync_after_write', False)
         super(DatabaseWrapper, self).__init__(settings_dict, alias=alias)
 
@@ -276,6 +267,31 @@ class DatabaseWrapper(base.DatabaseWrapper):
         return base.CursorWrapper(cursor)
 
     @property
+    def failover_active(self):
+        if self._failover_active and self.failover_history_size >= self.failover_history_limit:
+            self.failover_active = False
+        return self._failover_active
+
+    @failover_active.setter
+    def failover_active(self, value):
+        if not value:
+            self.failover_history_reset()
+        self._failover_active = value
+
+    @property
+    def failover_enable(self):
+        return self._failover_enable
+
+    @failover_enable.setter
+    def failover_enable(self, value):
+        self.failover_active = value
+        self._failover_enable = value
+
+    def failover_history_reset(self):
+        self.failover_history.clear()
+        self.failover_history_size = 0
+
+    @property
     def secondary_wrapper(self):
         if self._secondary_wrapper is None:
             self.connect_to_node(primary=False)
@@ -285,8 +301,8 @@ class DatabaseWrapper(base.DatabaseWrapper):
         if autocommit:
             self.in_write_transaction = False
         if autocommit != self.autocommit:
-            self.failover_history.clear()
-            self.failover_history_size = 0
+            self.failover_history_reset()
+            self.failover_active = self.failover_enable
         return super(DatabaseWrapper, self)._set_autocommit(autocommit)
 
     def sync_wait_secondary(self):
