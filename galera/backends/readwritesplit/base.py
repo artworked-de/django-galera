@@ -321,20 +321,21 @@ class DatabaseWrapper(base.DatabaseWrapper):
         return super(DatabaseWrapper, self)._set_autocommit(autocommit)
 
     def sync_wait_secondary(self):
-        if self.wsrep_sync_after_write:
-            cursor = self.connection.cursor()
-            cursor.execute('SELECT WSREP_LAST_WRITTEN_GTID()')
-            result = cursor.fetchone()
-            cursor.close()
-            primary_gtid = result[0].decode('utf-8')
-            cursor = self.secondary_wrapper.connection.cursor()
+        if self.wsrep_sync_after_write and not self.secondary_synced:
             try:
-                cursor.execute('SELECT WSREP_SYNC_WAIT_UPTO_GTID(%s)', (primary_gtid,))
-                LOGGER.debug('Secondary sync upto %s' % primary_gtid)
-            except base.Database.OperationalError as e:
-                LOGGER.warning('Could not sync secondary upto %s: %s' % (primary_gtid, str(e)))
-            cursor.close()
-        self.secondary_synced = True
+                t = time.perf_counter()
+                with self.secondary_wrapper.connection.cursor() as cursor:
+                    cursor.execute(
+                        'SET @wsrep_sync_wait_orig = @@wsrep_sync_wait;'
+                        'SET SESSION wsrep_sync_wait = GREATEST(@wsrep_sync_wait_orig, 1);'
+                        'SELECT 1;'
+                        'SET SESSION wsrep_sync_wait = @wsrep_sync_wait_orig;'
+                    )
+                t = time.perf_counter() - t
+                LOGGER.debug('Secondary synced in %f seconds' % t)
+            except Exception as e:
+                LOGGER.warning('Error while syncing secondary: %s' % str(e), exc_info=True)
+            self.secondary_synced = True
 
     def replay_history(self):
         for x, entry in enumerate(self.failover_history, start=1):
