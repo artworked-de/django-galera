@@ -133,8 +133,22 @@ class CursorWrapper:
 
         return obj
 
+    def __enter__(self):
+        # at this moment it is unknown if this cursor will be used for write queries, force creating a primary cursor
+        self._primary = True
+        return self.cursor.__enter__()
+
+    def __exit__(self, *exc_info):
+        return self.cursor.__exit__(*exc_info)
+
     def __getattr__(self, item):
         return self._failover_cursor(item)
+
+    def __next__(self):
+        return self.cursor.__next__()
+
+    def __iter__(self):
+        return self.cursor.__iter__()
 
     def _handle_exc(self, exc):
         if self._in_handle_exc:
