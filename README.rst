@@ -33,6 +33,7 @@ Setup
                 'failover_enable': True,  # enable transparent failover with transaction replay
                 'failover_history_limit': 1000,  # disable replay for connections reaching this limit (saves memory)
                 'wsrep_sync_after_write': True,  # explicitly wait until writes from primary have been applied before reading from secondary
+                'wsrep_sync_use_gtid': False,  # use WSREP_SYNC_UPTO_GTID for syncing secondary node (currently not recommended because of MariaDB issue MDEV-26359)
                 # options are also attributes of django.db.connection and can be changed on the fly for the current connection
             },
             'NODES': {

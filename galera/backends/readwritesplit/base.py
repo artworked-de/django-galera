@@ -207,6 +207,7 @@ class DatabaseWrapper(base.DatabaseWrapper):
         self.failover_enable = self.base_settings['OPTIONS'].pop('failover_enable', True)
         self.failover_history_limit = self.base_settings['OPTIONS'].pop('failover_history_limit', 1000)
         self.wsrep_sync_after_write = self.base_settings['OPTIONS'].pop('wsrep_sync_after_write', True)
+        self.wsrep_sync_use_gtid = self.base_settings['OPTIONS'].pop('wsrep_sync_use_gtid', False)
         super(DatabaseWrapper, self).__init__(self.base_settings, alias=alias)
 
     def close(self):
@@ -324,14 +325,13 @@ class DatabaseWrapper(base.DatabaseWrapper):
         if self.wsrep_sync_after_write and not self.secondary_synced:
             try:
                 t = time.perf_counter()
-                with self.secondary_wrapper.connection.cursor() as cursor:
-                    cursor.execute(
-                        'SET @wsrep_sync_wait_orig = @@wsrep_sync_wait;'
-                        'SET SESSION wsrep_sync_wait = GREATEST(@wsrep_sync_wait_orig, 1);'
-                        'SELECT 1;'
-                        'SET SESSION wsrep_sync_wait = @wsrep_sync_wait_orig;'
-                    )
+                if self.wsrep_sync_use_gtid:
+                    self._wsrep_sync_wait_upto_gtid()
+                else:
+                    self._wsrep_sync_wait()
                 t = time.perf_counter() - t
+                if t >= 3.0:
+                    logging.getLogger('django').error('Syncing secondary took %f seconds' % t)
                 LOGGER.debug('Secondary synced in %f seconds' % t)
             except Exception as e:
                 LOGGER.warning('Error while syncing secondary: %s' % str(e), exc_info=True)
@@ -358,3 +358,21 @@ class DatabaseWrapper(base.DatabaseWrapper):
                 cursor.close()
             else:
                 return cursor
+
+    def _wsrep_sync_wait(self):
+        with self.secondary_wrapper.connection.cursor() as cursor:
+            cursor.execute(
+                'SET @wsrep_sync_wait_orig = @@wsrep_sync_wait;'
+                'SET SESSION wsrep_sync_wait = GREATEST(@wsrep_sync_wait_orig, 1);'
+                'SELECT 1;'
+                'SET SESSION wsrep_sync_wait = @wsrep_sync_wait_orig;'
+            )
+
+    def _wsrep_sync_wait_upto_gtid(self):
+        with self.connection.cursor() as primary_cursor:
+            primary_cursor.execute('SELECT WSREP_LAST_WRITTEN_GTID()')
+            result = primary_cursor.fetchone()
+            primary_gtid = result[0].decode('utf-8')
+        with self.secondary_wrapper.connection.cursor() as secondary_cursor:
+            secondary_cursor.execute('SELECT WSREP_SYNC_WAIT_UPTO_GTID(%s)', (primary_gtid,))
+            LOGGER.debug('Secondary sync upto %s' % primary_gtid)
