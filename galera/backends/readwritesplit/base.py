@@ -330,8 +330,6 @@ class DatabaseWrapper(base.DatabaseWrapper):
                 else:
                     self._wsrep_sync_wait()
                 t = time.perf_counter() - t
-                if t >= 3.0:
-                    logging.getLogger('django').error('Syncing secondary took %f seconds' % t)
                 LOGGER.debug('Secondary synced in %f seconds' % t)
             except Exception as e:
                 LOGGER.warning('Error while syncing secondary: %s' % str(e), exc_info=True)
