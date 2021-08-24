@@ -31,8 +31,11 @@ class NodeState:
         if node in self.nodes:
             self.nodes[node] = time.time()
 
+    def get_all_nodes(self):
+        return tuple(self.nodes.keys())
+
     def get_online_nodes(self):
-        return (x for x, y in self.nodes.items() if y is None or time.time() > y + self.RETRY_INTERVAL)
+        return tuple(x for x, y in self.nodes.items() if y is None or time.time() > y + self.RETRY_INTERVAL)
 
 
 NODE_STATE = NodeState(multiprocessing.Manager().dict())
@@ -223,9 +226,9 @@ class DatabaseWrapper(base.DatabaseWrapper):
 
     def connect_to_node(self, primary=True):
         if primary:
-            nodes = sorted(list(NODE_STATE.get_online_nodes()))
+            nodes = sorted(list(NODE_STATE.get_online_nodes()) or list(NODE_STATE.get_all_nodes()))
         else:
-            nodes = list(NODE_STATE.get_online_nodes())
+            nodes = list(NODE_STATE.get_online_nodes()) or list(NODE_STATE.get_all_nodes())
             random.shuffle(nodes)
             preferred_host = self.base_settings.get('HOST', '')
             if preferred_host:
