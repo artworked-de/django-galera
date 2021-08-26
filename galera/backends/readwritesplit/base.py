@@ -226,9 +226,9 @@ class DatabaseWrapper(base.DatabaseWrapper):
 
     def connect_to_node(self, primary=True):
         if primary:
-            nodes = sorted(list(NODE_STATE.get_online_nodes()) or list(NODE_STATE.get_all_nodes()))
+            nodes = sorted(NODE_STATE.get_online_nodes() or NODE_STATE.get_all_nodes())
         else:
-            nodes = list(NODE_STATE.get_online_nodes()) or list(NODE_STATE.get_all_nodes())
+            nodes = list(NODE_STATE.get_online_nodes() or NODE_STATE.get_all_nodes())
             random.shuffle(nodes)
             preferred_host = self.base_settings.get('HOST', '')
             if preferred_host:
