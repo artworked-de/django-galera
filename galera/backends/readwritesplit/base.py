@@ -252,18 +252,33 @@ class DatabaseWrapper(base.DatabaseWrapper):
                     self._secondary_wrapper = base.DatabaseWrapper(settings_dict, alias=self.alias)
                     self._secondary_wrapper.connect()
                     connection = self._secondary_wrapper.connection
-                cursor = connection.cursor()
-                cursor.execute(
-                    "SELECT variable_value "
-                    "FROM information_schema.global_status "
-                    "WHERE variable_name = 'wsrep_ready'")
-                result = cursor.fetchone()
-                cursor.close()
-                if result[0] == 'ON':
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT variable_name, variable_value "
+                        "FROM information_schema.global_status "
+                        "WHERE variable_name IN ("
+                        "'WSREP_READY'"
+                        ") "
+                        "UNION "
+                        "SELECT variable_name, variable_value "
+                        "FROM information_schema.global_variables "
+                        "WHERE variable_name IN ("
+                        "'WSREP_DESYNC', 'WSREP_REJECT_QUERIES', 'WSREP_SST_DONOR_REJECTS_QUERIES'"
+                        ")"
+                    )
+                    results = ((k.upper(), v.upper()) for k, v in cursor.fetchall())
+                for k, v in results:
+                    if k == 'WSREP_READY' and v != 'ON':
+                        raise base.Database.Error('WSREP_READY %s' % v)
+                    elif k == 'WSREP_DESYNC' and v != 'OFF':
+                        raise base.Database.Error('WSREP_DESYNC %s' % v)
+                    elif k == 'WSREP_REJECT_QUERIES' and v != 'NONE':
+                        raise base.Database.Error('WSREP_REJECT_QUERIES %s' % v)
+                    elif k == 'WSREP_SST_DONOR_REJECTS_QUERIES' and v != 'OFF':
+                        raise base.Database.Error('WSREP_SST_DONOR_REJECTS_QUERIES %s' % v)
+                else:
                     NODE_STATE.mark_online(node)
                     break
-                else:
-                    raise base.Database.Error('wsrep not ready')
             except base.Database.Error as e:
                 LOGGER.info(e, exc_info=True)
                 NODE_STATE.mark_offline(node)
