@@ -257,7 +257,7 @@ class DatabaseWrapper(base.DatabaseWrapper):
                         "SELECT variable_name, variable_value "
                         "FROM information_schema.global_status "
                         "WHERE variable_name IN ("
-                        "'WSREP_READY'"
+                        "'WSREP_CLUSTER_STATUS', 'WSREP_LOCAL_STATE', 'WSREP_READY'"
                         ") "
                         "UNION "
                         "SELECT variable_name, variable_value "
@@ -266,19 +266,22 @@ class DatabaseWrapper(base.DatabaseWrapper):
                         "'WSREP_DESYNC', 'WSREP_REJECT_QUERIES', 'WSREP_SST_DONOR_REJECTS_QUERIES'"
                         ")"
                     )
-                    results = ((k.upper(), v.upper()) for k, v in cursor.fetchall())
-                for k, v in results:
-                    if k == 'WSREP_READY' and v != 'ON':
-                        raise base.Database.Error('WSREP_READY %s' % v)
-                    elif k == 'WSREP_DESYNC' and v != 'OFF':
-                        raise base.Database.Error('WSREP_DESYNC %s' % v)
-                    elif k == 'WSREP_REJECT_QUERIES' and v != 'NONE':
-                        raise base.Database.Error('WSREP_REJECT_QUERIES %s' % v)
-                    elif k == 'WSREP_SST_DONOR_REJECTS_QUERIES' and v != 'OFF':
-                        raise base.Database.Error('WSREP_SST_DONOR_REJECTS_QUERIES %s' % v)
-                else:
-                    NODE_STATE.mark_online(node)
-                    break
+                    results = {k.upper(): v.upper() for k, v in cursor.fetchall()}
+                if results['WSREP_READY'] != 'ON':
+                    raise base.Database.Error('WSREP_READY: %s' % results['WSREP_READY'])
+                if results['WSREP_CLUSTER_STATUS'] != 'PRIMARY':
+                    raise base.Database.Error('WSREP_CLUSTER_STATUS: %s' % results['WSREP_CLUSTER_STATUS'])
+                if results['WSREP_DESYNC'] != 'OFF':
+                    raise base.Database.Error('WSREP_DESYNC')
+                if results['WSREP_LOCAL_STATE'] != '4':
+                    if results['WSREP_LOCAL_STATE'] != '2':
+                        raise base.Database.Error('WSREP_LOCAL_STATE: %s' % results['WSREP_LOCAL_STATE'])
+                    elif results['WSREP_SST_DONOR_REJECTS_QUERIES'] == 'ON':
+                        raise base.Database.Error('WSREP_SST_DONOR_REJECTS_QUERIES')
+                if results['WSREP_REJECT_QUERIES'] != 'NONE':
+                    raise base.Database.Error('WSREP_REJECT_QUERIES: %s' % results['WSREP_REJECT_QUERIES'])
+                NODE_STATE.mark_online(node)
+                break
             except base.Database.Error as e:
                 LOGGER.info(e, exc_info=True)
                 NODE_STATE.mark_offline(node)
