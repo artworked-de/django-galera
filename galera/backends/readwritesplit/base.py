@@ -160,6 +160,7 @@ class CursorWrapper:
         if self._backend.failover_active:
             error_code = exc.args[0]
             if error_code in (
+                    1047,  # Unknown command (wsrep_reject_queries)
                     2006,  # MySQL server has gone away
                     2013,  # Lost connection to MySQL server during query
             ):
