@@ -8,12 +8,12 @@ with open(readme) as f:
 
 setup(
     name='django-galera',
-    version='0.9',
+    version='1.0.0',
     description='Django database backend for MariaDB Galera Cluster',
     long_description=long_description,
     url='https://github.com/pogowurst/django-galera',
     author='Steve Hunger',
-    author_email='pogowurst87@googlemail.com',
+    author_email='s.hunger@artworked.de',
     license='MIT',
     packages=(
         'galera',
@@ -22,10 +22,16 @@ setup(
         'galera.migrations',
     ),
     classifiers=(
-        'Development Status :: 4 - Beta',
+        'Development Status :: 5 - Production/Stable',
         'Intended Audience :: Developers',
         'Operating System :: OS Independent',
+        'Programming Language :: Python',
         'Programming Language :: Python :: 3',
+        'Programming Language :: Python :: 3 :: Only',
+        'Programming Language :: Python :: 3.6',
+        'Programming Language :: Python :: 3.7',
+        'Programming Language :: Python :: 3.8',
+        'Programming Language :: Python :: 3.9',
         'Topic :: Database',
         'Topic :: Software Development :: Libraries :: Python Modules',
         'Framework :: Django',
