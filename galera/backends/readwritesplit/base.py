@@ -210,6 +210,7 @@ class DatabaseWrapper(base.DatabaseWrapper):
         self.base_settings['OPTIONS'].pop('unix_socket', None)
         self.failover_enable = self.base_settings['OPTIONS'].pop('failover_enable', True)
         self.failover_history_limit = self.base_settings['OPTIONS'].pop('failover_history_limit', 1000)
+        self.optimistic_transactions = self.base_settings['OPTIONS'].pop('optimistic_transactions', True)
         self.wsrep_sync_after_write = self.base_settings['OPTIONS'].pop('wsrep_sync_after_write', True)
         self.wsrep_sync_use_gtid = self.base_settings['OPTIONS'].pop('wsrep_sync_use_gtid', False)
         super(DatabaseWrapper, self).__init__(self.base_settings, alias=alias)
@@ -338,6 +339,8 @@ class DatabaseWrapper(base.DatabaseWrapper):
     def _set_autocommit(self, autocommit):
         if autocommit:
             self.in_write_transaction = False
+        if not autocommit and not self.optimistic_transactions:
+            self.in_write_transaction = True
         if autocommit != self.autocommit:
             self.failover_history_reset()
             self.failover_active = self.failover_enable
