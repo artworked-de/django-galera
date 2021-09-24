@@ -114,7 +114,7 @@ class CursorWrapper:
                     ret = getattr(self._cursor, func.__name__)(*args, **kwargs)
                 if self._backend.failover_history:
                     self._backend.failover_history[-1].append((
-                        func.__name__,
+                        item,
                         args,
                         kwargs,
                         hashlib.sha1(pprint.pformat(ret).encode()).hexdigest()
