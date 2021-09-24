@@ -101,7 +101,7 @@ class CursorWrapper:
 
         try:
             obj = getattr(self.cursor, item)
-        except DatabaseError as e:
+        except Exception as e:
             self._handle_exc(e)
             obj = getattr(self._cursor, item)
 
@@ -109,7 +109,7 @@ class CursorWrapper:
             def decor(*args, **kwargs):
                 try:
                     ret = func(*args, **kwargs)
-                except DatabaseError as exc:
+                except Exception as exc:
                     self._handle_exc(exc)
                     ret = getattr(self._cursor, func.__name__)(*args, **kwargs)
                 if self._backend.failover_history:
@@ -154,15 +154,17 @@ class CursorWrapper:
         return self.cursor.__iter__()
 
     def _handle_exc(self, exc):
-        if self._in_handle_exc:
+        if self._in_handle_exc or not exc.args:
             raise exc
         self._in_handle_exc = True
-        if self._backend.failover_active:
-            error_code = exc.args[0]
+        if self._backend.failover_active and len(exc.args):
+            error_code = str(exc.args[0])
             if error_code in (
-                    1047,  # Unknown command (wsrep_reject_queries)
-                    2006,  # MySQL server has gone away
-                    2013,  # Lost connection to MySQL server during query
+                    '1047',  # Unknown command (wsrep_reject_queries)
+                    # '1205',  # Lock wait timeout exceeded; try restarting transaction
+                    '1213',  # Deadlock found when trying to get lock; try restarting transaction
+                    '2006',  # MySQL server has gone away
+                    '2013',  # Lost connection to MySQL server during query
             ):
                 autocommit = self._backend.autocommit
                 history = copy.copy(self._backend.failover_history)
