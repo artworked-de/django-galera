@@ -8,7 +8,7 @@ with open(readme) as f:
 
 setup(
     name='django-galera',
-    version='1.0.1',
+    version='1.0.2',
     description='Django database backend for MariaDB Galera Cluster',
     long_description=long_description,
     url='https://github.com/pogowurst/django-galera',
