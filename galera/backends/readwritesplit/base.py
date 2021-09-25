@@ -47,16 +47,24 @@ class CursorWrapper:
         self._cursor = None
         self._primary = False
         self._in_handle_exc = False
+        self._history_entry_index = None
 
     @property
     def cursor(self):
         if self._cursor is None:
-            self._backend.failover_history.append([])
             if self._primary:
                 self._cursor = self._backend.create_primary_cursor()
             else:
                 self._cursor = self._backend.create_secondary_cursor()
         return self._cursor
+
+    def add_history(self, item):
+        if self._backend.failover_active:
+            if self._history_entry_index is None:
+                self._history_entry_index = len(self._backend.failover_history)
+                self._backend.failover_history.append([])
+            self._backend.failover_history[self._history_entry_index].append(item)
+            self._backend.failover_history_size += 1
 
     def prepare(self, query):
         if query is None:
@@ -112,27 +120,23 @@ class CursorWrapper:
                 except Exception as exc:
                     self._handle_exc(exc)
                     ret = getattr(self._cursor, func.__name__)(*args, **kwargs)
-                if self._backend.failover_history:
-                    self._backend.failover_history[-1].append((
-                        item,
-                        args,
-                        kwargs,
-                        hashlib.sha1(pprint.pformat(ret).encode()).hexdigest()
-                    ))
-                    self._backend.failover_history_size += 1
+                self.add_history((
+                    item,
+                    args,
+                    kwargs,
+                    hashlib.sha1(pprint.pformat(ret).encode()).hexdigest()
+                ))
                 return ret
             return decor
         if hasattr(obj, '__call__'):
             obj = wrap(obj)
         else:
-            if self._backend.failover_history:
-                self._backend.failover_history[-1].append((
-                    item,
-                    None,
-                    None,
-                    hashlib.sha1(pprint.pformat(obj).encode()).hexdigest()
-                ))
-                self._backend.failover_history_size += 1
+            self.add_history((
+                item,
+                None,
+                None,
+                hashlib.sha1(pprint.pformat(obj).encode()).hexdigest()
+            ))
 
         return obj
 
@@ -167,25 +171,40 @@ class CursorWrapper:
                     '2013',  # Lost connection to MySQL server during query
             ):
                 autocommit = self._backend.autocommit
-                history = copy.copy(self._backend.failover_history)
+                in_atomic_block = self._backend.in_atomic_block
+                needs_rollback = self._backend.needs_rollback
+                savepoint_ids = self._backend.savepoint_ids
+                history = copy.deepcopy(self._backend.failover_history)
                 history_size = self._backend.failover_history_size
+
                 # try to gracefully close the original cursor and connection even if it will most certainly fail
                 try:
                     self._cursor.close()
                 except Exception as e:
                     LOGGER.debug('Could not close cursor after error: ' + str(e), exc_info=True)
                 try:
+                    self._backend.connection.rollback()
+                except Exception as e:
+                    LOGGER.debug('Could not rollback connection after error: ' + str(e), exc_info=True)
+                try:
                     self._backend.close()
                 except Exception as e:
                     LOGGER.debug('Could not close connection after error: ' + str(e), exc_info=True)
-                self._backend.connection = None
-                self._backend.primary_connected = False
-                self._backend.connect()
-                self._backend.set_autocommit(autocommit)
-                self._backend.failover_history = history
-                self._backend.failover_history_size = history_size
+
                 LOGGER.warning('Replaying %d cursors from failover history after %s' % (len(history), str(exc)))
-                self._cursor = self._backend.replay_history()
+
+                self._backend.connect()
+                self._backend.set_autocommit(False, force_begin_transaction_with_broken_autocommit=True)
+                self._backend.needs_rollback = True
+                self._cursor = self._backend.replay_history(history)
+                self._backend.needs_rollback = needs_rollback
+                if autocommit:
+                    self._backend.connection.commit()
+                    self._backend.set_autocommit(autocommit)
+                self._backend.in_atomic_block = in_atomic_block
+                self._backend.savepoint_ids = savepoint_ids
+                self._backend.failover_history = copy.deepcopy(history)
+                self._backend.failover_history_size = history_size
                 self._in_handle_exc = False
                 return
         self._in_handle_exc = False
@@ -194,7 +213,7 @@ class CursorWrapper:
 
 class DatabaseWrapper(base.DatabaseWrapper):
     base_settings = None
-    failover_history = list()
+    failover_history = None
     failover_history_size = 0
     in_write_transaction = False
     primary_connected = False
@@ -211,6 +230,7 @@ class DatabaseWrapper(base.DatabaseWrapper):
             self.base_settings['OPTIONS'] = dict()
         self.base_settings['OPTIONS'].pop('unix_socket', None)
         self.failover_enable = self.base_settings['OPTIONS'].pop('failover_enable', True)
+        self.failover_history = list()
         self.failover_history_limit = self.base_settings['OPTIONS'].pop('failover_history_limit', 1000)
         self.optimistic_transactions = self.base_settings['OPTIONS'].pop('optimistic_transactions', True)
         self.wsrep_sync_after_write = self.base_settings['OPTIONS'].pop('wsrep_sync_after_write', True)
@@ -225,6 +245,8 @@ class DatabaseWrapper(base.DatabaseWrapper):
         self.failover_history_reset()
 
     def connect(self):
+        self.connection = None
+        self.primary_connected = False
         self.connect_to_node(primary=True)
         self.primary_connected = True
 
@@ -362,12 +384,9 @@ class DatabaseWrapper(base.DatabaseWrapper):
                 LOGGER.warning('Error while syncing secondary: %s' % str(e), exc_info=True)
             self.secondary_synced = True
 
-    def replay_history(self):
-        for x, entry in enumerate(self.failover_history, start=1):
-            if self.in_write_transaction:
-                cursor = self.connection.cursor()
-            else:
-                cursor = self.secondary_wrapper.connection.cursor()
+    def replay_history(self, history):
+        for x, entry in enumerate(history, start=1):
+            cursor = self.connection.cursor()
             for attr_name, args, kwargs, check in entry:
                 attr = getattr(cursor, attr_name)
                 if args is None:
@@ -379,7 +398,7 @@ class DatabaseWrapper(base.DatabaseWrapper):
 
             # do not close the cursor if this is the last history entry
             # the cursor should then have a comparable state as the original cursor
-            if x != len(self.failover_history):
+            if x != len(history):
                 cursor.close()
             else:
                 return cursor
