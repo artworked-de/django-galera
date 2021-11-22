@@ -61,7 +61,7 @@ class CursorWrapper:
 
     def add_history(self, item):
         if self._backend.failover_active:
-            if self._history_entry_index is None:
+            if self._history_entry_index is None or len(self._backend.failover_history) == 0:
                 self._history_entry_index = len(self._backend.failover_history)
                 self._backend.failover_history.append([])
             self._backend.failover_history[self._history_entry_index].append(item)
@@ -75,6 +75,7 @@ class CursorWrapper:
             rw_query = not query.startswith('SELECT ')
             rw_query = rw_query or query.endswith(' FOR UPDATE') or ' INTO ' in query
         if rw_query:
+            self._backend.primary_synced = False
             self._backend.secondary_synced = False
             if not self._backend.autocommit and not self._backend.in_write_transaction:
                 self._backend.in_write_transaction = True
@@ -162,12 +163,12 @@ class CursorWrapper:
         if self._in_handle_exc or not exc.args:
             raise exc
         self._in_handle_exc = True
-        if self._backend.failover_active and len(exc.args):
+        if self._backend.failover_active and len(exc.args) and len(self._backend.failover_history):
             error_code = str(exc.args[0])
             if error_code in (
                     '1047',  # Unknown command (wsrep_reject_queries)
                     # '1205',  # Lock wait timeout exceeded; try restarting transaction
-                    '1213',  # Deadlock found when trying to get lock; try restarting transaction
+                    # '1213',  # Deadlock found when trying to get lock; try restarting transaction
                     '2006',  # MySQL server has gone away
                     '2013',  # Lost connection to MySQL server during query
             ):
@@ -218,6 +219,7 @@ class DatabaseWrapper(base.DatabaseWrapper):
     failover_history_size = 0
     in_write_transaction = False
     primary_connected = False
+    primary_synced = True
     secondary_synced = True
 
     _failover_active = None
@@ -352,7 +354,7 @@ class DatabaseWrapper(base.DatabaseWrapper):
         self._failover_enable = value
 
     def failover_history_reset(self):
-        self.failover_history.clear()
+        self.failover_history = list()
         self.failover_history_size = 0
 
     @property
@@ -363,6 +365,7 @@ class DatabaseWrapper(base.DatabaseWrapper):
 
     def _set_autocommit(self, autocommit):
         if autocommit:
+            self.sync_wait_primary()
             self.in_write_transaction = False
         if not autocommit and not self.optimistic_transactions:
             self.in_write_transaction = True
@@ -371,6 +374,17 @@ class DatabaseWrapper(base.DatabaseWrapper):
             self.failover_active = self.failover_enable
         return super(DatabaseWrapper, self)._set_autocommit(autocommit)
 
+    def sync_wait_primary(self):
+        if self.wsrep_sync_after_write and not self.primary_synced:
+            try:
+                t = time.perf_counter()
+                self._wsrep_sync_wait(self.connection)
+                t = time.perf_counter() - t
+                LOGGER.debug('Primary synced in %f seconds' % t)
+            except Exception as e:
+                LOGGER.warning('Error while syncing primary: %s' % str(e), exc_info=True)
+            self.primary_synced = True
+
     def sync_wait_secondary(self):
         if self.wsrep_sync_after_write and not self.secondary_synced:
             try:
@@ -378,7 +392,7 @@ class DatabaseWrapper(base.DatabaseWrapper):
                 if self.wsrep_sync_use_gtid:
                     self._wsrep_sync_wait_upto_gtid()
                 else:
-                    self._wsrep_sync_wait()
+                    self._wsrep_sync_wait(self.secondary_wrapper.connection)
                 t = time.perf_counter() - t
                 LOGGER.debug('Secondary synced in %f seconds' % t)
             except Exception as e:
@@ -404,8 +418,8 @@ class DatabaseWrapper(base.DatabaseWrapper):
             else:
                 return cursor
 
-    def _wsrep_sync_wait(self):
-        with self.secondary_wrapper.connection.cursor() as cursor:
+    def _wsrep_sync_wait(self, connection):
+        with connection.cursor() as cursor:
             cursor.execute(
                 'SET @wsrep_sync_wait_orig = @@wsrep_sync_wait;'
                 'SET SESSION wsrep_sync_wait = GREATEST(@wsrep_sync_wait_orig, 1);'
