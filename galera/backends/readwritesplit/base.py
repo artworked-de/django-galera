@@ -163,7 +163,7 @@ class CursorWrapper:
         if self._in_handle_exc or not exc.args:
             raise exc
         self._in_handle_exc = True
-        if self._backend.failover_active and len(exc.args) and len(self._backend.failover_history):
+        if self._backend.failover_active and len(exc.args):
             error_code = str(exc.args[0])
             if error_code in (
                     '1047',  # Unknown command (wsrep_reject_queries)
@@ -417,6 +417,8 @@ class DatabaseWrapper(base.DatabaseWrapper):
                 cursor.close()
             else:
                 return cursor
+        # return a new cursor if history is empty
+        return self.connection.cursor()
 
     def _wsrep_sync_wait(self, connection):
         with connection.cursor() as cursor:
