@@ -413,17 +413,24 @@ class DatabaseWrapper(base.DatabaseWrapper):
 
     def sync_wait_secondary(self):
         if self.wsrep_sync_after_write and not self.secondary_synced:
-            try:
-                t = time.perf_counter()
-                if self.wsrep_sync_use_gtid:
-                    self._wsrep_sync_wait_upto_gtid()
-                else:
-                    self._wsrep_sync_wait(self.secondary_wrapper.connection)
-                t = time.perf_counter() - t
-                LOGGER.debug('Secondary synced in %f seconds' % t)
-            except Exception as e:
-                LOGGER.warning('Error while syncing secondary: %s' % str(e), exc_info=True)
-            self.secondary_synced = True
+            t = time.perf_counter()
+            retry = 0
+            while not self.secondary_synced:
+                try:
+                    if self.wsrep_sync_use_gtid:
+                        self._wsrep_sync_wait_upto_gtid()
+                    else:
+                        self._wsrep_sync_wait(self.secondary_wrapper.connection)
+                    self.secondary_synced = True
+                except Exception as e:
+                    error_code = str(e.args[0]) if e.args else ''
+                    if retry < 3 and error_code == '1205':  # Lock wait timeout exceeded; try restarting transaction
+                        LOGGER.info('Retry syncing secondary after: %s' % str(e), exc_info=True)
+                        retry += 1
+                        continue
+                    raise e
+            t = time.perf_counter() - t
+            LOGGER.debug('Secondary synced in %f seconds' % t)
 
     def replay_history(self, history):
         for x, entry in enumerate(history, start=1):
@@ -450,6 +457,7 @@ class DatabaseWrapper(base.DatabaseWrapper):
         with connection.cursor() as cursor:
             cursor.execute(
                 'SET @wsrep_sync_wait_orig = @@wsrep_sync_wait;'
+                'SET SESSION lock_wait_timeout = 5;'
                 'SET SESSION wsrep_sync_wait = GREATEST(@wsrep_sync_wait_orig, 1);'
                 'SELECT 1;'
                 'SET SESSION wsrep_sync_wait = @wsrep_sync_wait_orig;'
