@@ -202,13 +202,15 @@ class CursorWrapper:
             error_code = str(exc.args[0])
             if error_code in (
                     '1047',  # Unknown command (wsrep_reject_queries)
-                    # '1205',  # Lock wait timeout exceeded; try restarting transaction
-                    # '1213',  # Deadlock found when trying to get lock; try restarting transaction
+                    '1180',  # Got error 6 "No such device or address" during COMMIT
+                    '1205',  # Lock wait timeout exceeded; try restarting transaction
+                    '1213',  # Deadlock found when trying to get lock; try restarting transaction
                     '2006',  # MySQL server has gone away
                     '2013',  # Lost connection to MySQL server during query
             ):
                 autocommit = self._backend.autocommit
                 in_atomic_block = self._backend.in_atomic_block
+                in_write_transaction = self._backend.in_write_transaction
                 needs_rollback = self._backend.needs_rollback
                 savepoint_ids = self._backend.savepoint_ids
                 history = copy.deepcopy(self._backend.failover_history)
@@ -239,6 +241,7 @@ class CursorWrapper:
                     self._backend.connection.commit()
                     self._backend.set_autocommit(autocommit)
                 self._backend.in_atomic_block = in_atomic_block
+                self._backend.in_write_transaction = in_write_transaction
                 self._backend.savepoint_ids = savepoint_ids
                 self._backend.failover_history = copy.deepcopy(history)
                 self._backend.failover_history_size = history_size
