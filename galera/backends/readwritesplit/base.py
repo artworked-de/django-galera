@@ -465,7 +465,7 @@ class DatabaseWrapper(base.DatabaseWrapper):
 
     def _wsrep_sync_wait_upto_gtid(self):
         with self.connection.cursor() as primary_cursor:
-            primary_cursor.execute('SELECT WSREP_LAST_WRITTEN_GTID()')
+            primary_cursor.execute('SELECT WSREP_LAST_SEEN_GTID()')
             result = primary_cursor.fetchone()
             primary_gtid = result[0].decode('utf-8')
         with self.secondary_wrapper.connection.cursor() as secondary_cursor:
