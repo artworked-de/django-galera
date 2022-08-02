@@ -3,6 +3,7 @@ import hashlib
 import logging
 import pprint
 import random
+import re
 import time
 
 from django.db import DEFAULT_DB_ALIAS, DatabaseError
@@ -59,13 +60,58 @@ class CursorWrapper:
                 self._cursor = self._backend.create_secondary_cursor()
         return self._cursor
 
-    def add_history(self, item):
-        if self._backend.failover_active:
+    def add_history(self, attr, args, kwargs, return_value):
+        if self._backend.failover_active and attr != '_executed':
             if self._history_entry_index is None or len(self._backend.failover_history) == 0:
                 self._history_entry_index = len(self._backend.failover_history)
                 self._backend.failover_history.append([])
-            self._backend.failover_history[self._history_entry_index].append(item)
+            self._backend.failover_history[self._history_entry_index].append((
+                attr,
+                args,
+                kwargs,
+                hashlib.sha1(pprint.pformat(return_value).encode()).hexdigest()
+            ))
             self._backend.failover_history_size += 1
+
+            # store the insert id of an auto field, so it does not change when the history is replayed
+            if self._backend.failover_history[self._history_entry_index][-1][0] in ('fetchone', 'fetchall') \
+                    and self._backend.failover_history[self._history_entry_index][-2][0] == 'execute' \
+                    and self._backend.failover_history[self._history_entry_index][-2][1][0].startswith('INSERT '):
+                insert_entry = self._backend.failover_history[self._history_entry_index][-2]
+                insert_sql = insert_entry[1][0]
+                match = re.match(
+                    r'^INSERT INTO `([^`]+)` \((.+)\) VALUES (.+) RETURNING `([^`]+)`.`([^`]+)`$',
+                    insert_sql
+                )
+                if match:
+                    table_name, fields, values, auto_table, auto_field = match.groups()
+                    values_new = values.replace('(%s, ', '(%s, %s, ')
+                    new_sql = (
+                        f'INSERT INTO `{table_name}` '
+                        f'(`{auto_field}`, {fields}) '
+                        f'VALUES {values_new} '
+                        f'RETURNING `{auto_table}`.`{auto_field}`'
+                    )
+                    if new_sql != insert_sql:
+                        kwargs = copy.deepcopy(insert_entry[2])
+                        kwargs['args'] = list(kwargs['args'])
+                        values_count = int(round(len(kwargs['args']) / len(return_value)))
+                        if len(return_value) == 1:
+                            kwargs['args'].insert(0, str(return_value[0]))
+                        else:
+                            for x in range(len(return_value)):
+                                kwargs['args'].insert(x * values_count + x, str(return_value[x][0]))
+                        kwargs['args'] = tuple(kwargs['args'])
+                        self._backend.failover_history[self._history_entry_index][-2] = (
+                            insert_entry[0],
+                            (new_sql,),
+                            kwargs,
+                            insert_entry[3],
+                        )
+                    else:
+                        LOGGER.warning('SQL unchanged: %s' % insert_sql)
+                else:
+                    LOGGER.warning('No match: %s' % insert_sql)
 
     def prepare(self, query):
         if query is None:
@@ -122,24 +168,13 @@ class CursorWrapper:
                 except Exception as exc:
                     self._handle_exc(exc)
                     ret = getattr(self._cursor, func.__name__)(*args, **kwargs)
-                self.add_history((
-                    item,
-                    args,
-                    kwargs,
-                    hashlib.sha1(pprint.pformat(ret).encode()).hexdigest()
-                ))
+                self.add_history(item, args, kwargs, ret)
                 return ret
             return decor
         if hasattr(obj, '__call__'):
             obj = wrap(obj)
         else:
-            self.add_history((
-                item,
-                None,
-                None,
-                hashlib.sha1(pprint.pformat(obj).encode()).hexdigest()
-            ))
-
+            self.add_history(item, None, None, obj)
         return obj
 
     def __enter__(self):
