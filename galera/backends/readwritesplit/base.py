@@ -402,26 +402,14 @@ class DatabaseWrapper(base.DatabaseWrapper):
         return self._secondary_wrapper
 
     def _set_autocommit(self, autocommit):
+        super(DatabaseWrapper, self)._set_autocommit(autocommit)
         if autocommit:
-            self.sync_wait_primary()
             self.in_write_transaction = False
         if not autocommit and not self.optimistic_transactions:
             self.in_write_transaction = True
         if autocommit != self.autocommit:
             self.failover_history_reset()
             self.failover_active = self.failover_enable
-        return super(DatabaseWrapper, self)._set_autocommit(autocommit)
-
-    def sync_wait_primary(self):
-        if self.wsrep_sync_after_write and not self.primary_synced:
-            try:
-                t = time.perf_counter()
-                self._wsrep_sync_wait(self.connection)
-                t = time.perf_counter() - t
-                LOGGER.debug('Primary synced in %f seconds' % t)
-            except Exception as e:
-                LOGGER.warning('Error while syncing primary: %s' % str(e), exc_info=True)
-            self.primary_synced = True
 
     def sync_wait_secondary(self):
         if self.wsrep_sync_after_write and not self.secondary_synced:
