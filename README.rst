@@ -168,11 +168,3 @@ This is an annotated example configuration for a 3-node cluster.
             }
         }
     }
-
-    MIDDLEWARE = [
-        # ...
-        # Optional: the middleware repeats a request if a deadlock occurs
-        # this middleware handles deadlocks caused by any view and other middleware coming after it
-        'galera.middleware.GaleraMiddleware'
-        # ...
-    ]
