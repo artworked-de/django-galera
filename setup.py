@@ -21,7 +21,7 @@ setup(
         'galera.backends.readwritesplit',
         'galera.migrations',
     ),
-    classifiers=(
+    classifiers=[
         'Development Status :: 5 - Production/Stable',
         'Intended Audience :: Developers',
         'Operating System :: OS Independent',
@@ -39,7 +39,7 @@ setup(
         'Framework :: Django :: 3.0',
         'Framework :: Django :: 3.1',
         'Framework :: Django :: 3.2',
-    ),
+    ],
     install_requires=(
         'django>=2.2'
     )
