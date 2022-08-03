@@ -56,6 +56,7 @@ Some features of django-galera can be configured to suit your needs by adding th
 .. code-block:: python
 
     'OPTIONS' : {
+        'disable_update_can_self_select': True,
         'failover_enable': True,
         'failover_history_limit': 1000,
         'optimistic_transactions': True,
@@ -72,6 +73,12 @@ Some features of django-galera can be configured to suit your needs by adding th
       - Type
       - Default
       - Description
+    * - disable_update_can_self_select
+      - bool
+      - True
+      - Django uses sub queries for updates on MariaDB >= 10.3.2. This causes excessive locking and even
+        crashes in conjunction with Galera Cluster. Setting this to True will disable this behaviour and makes the SQL
+        compiler use the classic approach instead
     * - failover_enable
       - bool
       - True

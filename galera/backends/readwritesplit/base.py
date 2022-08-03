@@ -8,6 +8,7 @@ import time
 
 from django.db import DEFAULT_DB_ALIAS, DatabaseError
 from django.db.backends.mysql import base
+from django.utils.functional import cached_property
 
 LOGGER = logging.getLogger(__name__)
 
@@ -251,7 +252,17 @@ class CursorWrapper:
         raise exc
 
 
+class DatabaseFeatures(base.DatabaseFeatures):
+    @cached_property
+    def update_can_self_select(self):
+        if self.connection.disable_update_can_self_select:
+            return False
+        return super(DatabaseFeatures, self).update_can_self_select
+
+
 class DatabaseWrapper(base.DatabaseWrapper):
+    features_class = DatabaseFeatures
+
     base_settings = None
     failover_history = None
     failover_history_size = 0
@@ -270,6 +281,7 @@ class DatabaseWrapper(base.DatabaseWrapper):
         if 'OPTIONS' not in self.base_settings:
             self.base_settings['OPTIONS'] = dict()
         self.base_settings['OPTIONS'].pop('unix_socket', None)
+        self.disable_update_can_self_select = self.base_settings['OPTIONS'].pop('disable_update_can_self_select', True)
         self.failover_enable = self.base_settings['OPTIONS'].pop('failover_enable', True)
         self.failover_history = list()
         self.failover_history_limit = self.base_settings['OPTIONS'].pop('failover_history_limit', 1000)
