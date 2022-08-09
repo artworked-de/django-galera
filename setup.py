@@ -13,14 +13,14 @@ setup(
     long_description=long_description,
     url='https://github.com/pogowurst/django-galera',
     author='Steve Hunger',
-    author_email='s.hunger@artworked.de',
+    author_email='steve@artworked.de',
     license='MIT',
-    packages=(
+    packages=[
         'galera',
         'galera.backends',
         'galera.backends.readwritesplit',
         'galera.migrations',
-    ),
+    ],
     classifiers=[
         'Development Status :: 5 - Production/Stable',
         'Intended Audience :: Developers',
@@ -32,6 +32,8 @@ setup(
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: 3.9',
+        'Programming Language :: Python :: 3.10',
+        'Programming Language :: Python :: 3.11',
         'Topic :: Database',
         'Topic :: Software Development :: Libraries :: Python Modules',
         'Framework :: Django',
@@ -39,8 +41,10 @@ setup(
         'Framework :: Django :: 3.0',
         'Framework :: Django :: 3.1',
         'Framework :: Django :: 3.2',
+        'Framework :: Django :: 4.0',
+        'Framework :: Django :: 4.1',
     ],
-    install_requires=(
+    install_requires=[
         'django>=2.2'
-    )
+    ]
 )
