@@ -284,7 +284,7 @@ class DatabaseWrapper(base.DatabaseWrapper):
         self.disable_update_can_self_select = self.base_settings['OPTIONS'].pop('disable_update_can_self_select', True)
         self.failover_enable = self.base_settings['OPTIONS'].pop('failover_enable', True)
         self.failover_history = list()
-        self.failover_history_limit = self.base_settings['OPTIONS'].pop('failover_history_limit', 1000)
+        self.failover_history_limit = self.base_settings['OPTIONS'].pop('failover_history_limit', 10000)
         self.optimistic_transactions = self.base_settings['OPTIONS'].pop('optimistic_transactions', True)
         self.wsrep_sync_after_write = self.base_settings['OPTIONS'].pop('wsrep_sync_after_write', True)
         self.wsrep_sync_use_gtid = self.base_settings['OPTIONS'].pop('wsrep_sync_use_gtid', False)
