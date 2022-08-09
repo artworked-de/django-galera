@@ -158,7 +158,7 @@ This is an annotated example configuration for a 3-node cluster.
                 'failover_history_limit': 10000,  # disable replay for transactions reaching this limit (saves memory)
                 'optimistic_transactions': True,  # enable optimistic transaction execution on secondary node
                 'wsrep_sync_after_write': True,  # explicitly wait until writes from primary have been applied before reading from secondary
-                'wsrep_sync_use_gtid': False,  # use WSREP_SYNC_UPTO_GTID for syncing secondary node (currently not recommended because of drifting GTID)
+                'wsrep_sync_use_gtid': False,  # use WSREP_SYNC_UPTO_GTID for syncing secondary node (currently not recommended because of drifting GTIDs)
                 # options are also attributes of django.db.connection and can be changed on the fly for the current connection
             },
             'NODES': {
