@@ -433,14 +433,15 @@ class DatabaseWrapper(base.DatabaseWrapper):
                         self._wsrep_sync_wait_upto_gtid()
                     else:
                         self._wsrep_sync_wait(self.secondary_wrapper.connection)
-                    self.secondary_synced = True
                 except Exception as e:
                     error_code = str(e.args[0]) if e.args else ''
                     if retry < 3 and error_code == '1205':  # Lock wait timeout exceeded; try restarting transaction
                         LOGGER.info('Retry syncing secondary after: %s' % str(e), exc_info=True)
                         retry += 1
                         continue
-                    raise e
+                    LOGGER.warning('Error while syncing secondary: %s' % str(e), exc_info=True)
+                finally:
+                    self.secondary_synced = True
             t = time.perf_counter() - t
             LOGGER.debug('Secondary synced in %f seconds' % t)
 
