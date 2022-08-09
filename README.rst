@@ -58,7 +58,7 @@ Some features of django-galera can be configured to suit your needs by adding th
     'OPTIONS' : {
         'disable_update_can_self_select': True,
         'failover_enable': True,
-        'failover_history_limit': 1000,
+        'failover_history_limit': 10000,
         'optimistic_transactions': True,
         'wsrep_sync_after_write': True,
         'wsrep_sync_use_gtid': False,
@@ -85,7 +85,7 @@ Some features of django-galera can be configured to suit your needs by adding th
       - Enable failover and transaction replay on another node when the current node fails.
     * - failover_history_limit
       - int
-      - 1000
+      - 10000
       - Transaction replay keeps a list of every query and checksums of their results. In case of failure, they will be replayed on another node and the results compared to ensure data consistency. If there are more than this many entries in the list, failover and transaction replay will be disabled for the current transaction to prevent ever growing memory consumption.
     * - optimistic_transactions
       - bool
@@ -98,7 +98,7 @@ Some features of django-galera can be configured to suit your needs by adding th
     * - wsrep_sync_use_gtid
       - bool
       - False
-      - Instead of using **wsrep_sync_wait**, django-galera can also utilize the more granular functions **wsrep_last_written_gtid** and **wsrep_sync_wait_upto_gtid**. As **wsrep_last_written_gtid** currently returns wrong values on MariaDB 10.5 and later, it is disabled by default and should not be used until MDEV-26359 is fixed.
+      - Instead of using **wsrep_sync_wait**, django-galera can also utilize the more granular functions **wsrep_last_seen_gtid** and **wsrep_sync_wait_upto_gtid**. As GTIDs are still not fully consistent and may drift away between nodes, this feature is disabled by default and should not be used until the drifting is fixed in MariaDB Galera Cluster.
 
 
 Application and database on the same machine
@@ -153,11 +153,12 @@ This is an annotated example configuration for a 3-node cluster.
             'USER': 'db_username',
             'PASSWORD': 'db_password',
             'OPTIONS': {
+                'disable_update_can_self_select': True,  # fixes issues with large updates leading to excessive locking and crashes
                 'failover_enable': True,  # enable transparent failover with transaction replay
-                'failover_history_limit': 1000,  # disable replay for transactions reaching this limit (saves memory)
+                'failover_history_limit': 10000,  # disable replay for transactions reaching this limit (saves memory)
                 'optimistic_transactions': True,  # enable optimistic transaction execution on secondary node
                 'wsrep_sync_after_write': True,  # explicitly wait until writes from primary have been applied before reading from secondary
-                'wsrep_sync_use_gtid': False,  # use WSREP_SYNC_UPTO_GTID for syncing secondary node (currently not recommended because of MariaDB issue MDEV-26359)
+                'wsrep_sync_use_gtid': False,  # use WSREP_SYNC_UPTO_GTID for syncing secondary node (currently not recommended because of drifting GTID)
                 # options are also attributes of django.db.connection and can be changed on the fly for the current connection
             },
             'NODES': {
