@@ -472,7 +472,7 @@ class DatabaseWrapper(base.DatabaseWrapper):
                 'SET @lock_wait_timeout_orig = @@lock_wait_timeout;'
                 'SET @wsrep_sync_wait_orig = @@wsrep_sync_wait;'
                 'SET SESSION lock_wait_timeout = 5;'
-                'SET SESSION wsrep_sync_wait = GREATEST(@wsrep_sync_wait_orig, 1);'
+                'SET SESSION wsrep_sync_wait = 1;'
                 'SELECT 1;'
                 'SET SESSION lock_wait_timeout = @lock_wait_timeout_orig;'
                 'SET SESSION wsrep_sync_wait = @wsrep_sync_wait_orig;'
