@@ -49,7 +49,6 @@ class CursorWrapper:
         self._backend = backend
         self._cursor = None
         self._primary = False
-        self._in_handle_exc = False
         self._history_entry_index = None
 
     @property
@@ -159,7 +158,7 @@ class CursorWrapper:
         try:
             obj = getattr(self.cursor, item)
         except Exception as e:
-            self._handle_exc(e)
+            self._cursor = self._backend.handle_exc(e, cursor=self._cursor)
             obj = getattr(self._cursor, item)
 
         def wrap(func):
@@ -167,7 +166,7 @@ class CursorWrapper:
                 try:
                     ret = func(*args, **kwargs)
                 except Exception as exc:
-                    self._handle_exc(exc)
+                    self._cursor = self._backend.handle_exc(exc, cursor=self._cursor)
                     ret = getattr(self._cursor, func.__name__)(*args, **kwargs)
                 self.add_history(item, args, kwargs, ret)
                 return ret
@@ -195,62 +194,6 @@ class CursorWrapper:
     def __iter__(self):
         return self.cursor.__iter__()
 
-    def _handle_exc(self, exc):
-        if self._in_handle_exc or not exc.args:
-            raise exc
-        self._in_handle_exc = True
-        if self._backend.failover_active and len(exc.args):
-            error_code = str(exc.args[0])
-            if error_code in (
-                    '1047',  # Unknown command (wsrep_reject_queries)
-                    '1180',  # Got error 6 "No such device or address" during COMMIT
-                    '1205',  # Lock wait timeout exceeded; try restarting transaction
-                    '1213',  # Deadlock found when trying to get lock; try restarting transaction
-                    '2006',  # MySQL server has gone away
-                    '2013',  # Lost connection to MySQL server during query
-            ):
-                autocommit = self._backend.autocommit
-                in_atomic_block = self._backend.in_atomic_block
-                in_write_transaction = self._backend.in_write_transaction
-                needs_rollback = self._backend.needs_rollback
-                savepoint_ids = self._backend.savepoint_ids
-                history = copy.deepcopy(self._backend.failover_history)
-                history_size = self._backend.failover_history_size
-
-                # try to gracefully close the original cursor and connection even if it will most certainly fail
-                try:
-                    self._cursor.close()
-                except Exception as e:
-                    LOGGER.debug('Could not close cursor after error: ' + str(e), exc_info=True)
-                try:
-                    self._backend.connection.rollback()
-                except Exception as e:
-                    LOGGER.debug('Could not rollback connection after error: ' + str(e), exc_info=True)
-                try:
-                    self._backend.close()
-                except Exception as e:
-                    LOGGER.debug('Could not close connection after error: ' + str(e), exc_info=True)
-
-                LOGGER.warning('Replaying %d cursors from failover history after %s' % (len(history), str(exc)))
-
-                self._backend.connect()
-                self._backend.set_autocommit(False, force_begin_transaction_with_broken_autocommit=True)
-                self._backend.needs_rollback = True
-                self._cursor = self._backend.replay_history(history)
-                self._backend.needs_rollback = needs_rollback
-                if autocommit:
-                    self._backend.connection.commit()
-                    self._backend.set_autocommit(autocommit)
-                self._backend.in_atomic_block = in_atomic_block
-                self._backend.in_write_transaction = in_write_transaction
-                self._backend.savepoint_ids = savepoint_ids
-                self._backend.failover_history = copy.deepcopy(history)
-                self._backend.failover_history_size = history_size
-                self._in_handle_exc = False
-                return
-        self._in_handle_exc = False
-        raise exc
-
 
 class DatabaseFeatures(base.DatabaseFeatures):
     @cached_property
@@ -275,6 +218,8 @@ class DatabaseWrapper(base.DatabaseWrapper):
     _failover_enable = None
     _secondary_wrapper = None
 
+    _in_handle_exc = None
+
     def __init__(self, settings_dict, alias=DEFAULT_DB_ALIAS):
         self.base_settings = copy.deepcopy(settings_dict)
         NODE_STATE.add_nodes(self.base_settings.get('NODES', ()))
@@ -288,6 +233,7 @@ class DatabaseWrapper(base.DatabaseWrapper):
         self.optimistic_transactions = self.base_settings['OPTIONS'].pop('optimistic_transactions', True)
         self.wsrep_sync_after_write = self.base_settings['OPTIONS'].pop('wsrep_sync_after_write', True)
         self.wsrep_sync_use_gtid = self.base_settings['OPTIONS'].pop('wsrep_sync_use_gtid', False)
+        self._in_handle_exc = False
         super(DatabaseWrapper, self).__init__(self.base_settings, alias=alias)
 
     def close(self):
@@ -414,7 +360,14 @@ class DatabaseWrapper(base.DatabaseWrapper):
         return self._secondary_wrapper
 
     def _set_autocommit(self, autocommit):
-        super(DatabaseWrapper, self)._set_autocommit(autocommit)
+        try:
+            super(DatabaseWrapper, self)._set_autocommit(autocommit)
+        except Exception as e:
+            if self.failover_active:
+                self.handle_exc(e)
+                super(DatabaseWrapper, self)._set_autocommit(autocommit)
+            else:
+                raise e
         if autocommit:
             self.in_write_transaction = False
         if not autocommit and not self.optimistic_transactions:
@@ -444,6 +397,65 @@ class DatabaseWrapper(base.DatabaseWrapper):
                     self.secondary_synced = True
             t = time.perf_counter() - t
             LOGGER.debug('Secondary synced in %f seconds' % t)
+
+    def handle_exc(self, exc, cursor=None):
+        if self._in_handle_exc or not exc.args:
+            raise exc
+        self._in_handle_exc = True
+        if self.failover_active and len(exc.args):
+            error_code = str(exc.args[0])
+            if error_code in (
+                    '1047',  # Unknown command (wsrep_reject_queries)
+                    '1180',  # Got error 6 "No such device or address" during COMMIT
+                    '1205',  # Lock wait timeout exceeded; try restarting transaction
+                    '1213',  # Deadlock found when trying to get lock; try restarting transaction
+                    '2006',  # MySQL server has gone away
+                    '2013',  # Lost connection to MySQL server during query
+            ):
+                autocommit = self.autocommit
+                closed_in_transaction = self.closed_in_transaction
+                in_atomic_block = self.in_atomic_block
+                in_write_transaction = self.in_write_transaction
+                needs_rollback = self.needs_rollback
+                savepoint_ids = self.savepoint_ids
+                history = copy.deepcopy(self.failover_history)
+                history_size = self.failover_history_size
+
+                # try to gracefully close the original cursor and connection even if it will most certainly fail
+                try:
+                    if cursor is not None:
+                        cursor.close()
+                except Exception as e:
+                    LOGGER.debug('Could not close cursor after error: ' + str(e), exc_info=True)
+                try:
+                    self.connection.rollback()
+                except Exception as e:
+                    LOGGER.debug('Could not rollback connection after error: ' + str(e), exc_info=True)
+                try:
+                    self.close()
+                except Exception as e:
+                    LOGGER.debug('Could not close connection after error: ' + str(e), exc_info=True)
+
+                LOGGER.warning('Replaying %d cursors from failover history after %s' % (len(history), str(exc)))
+
+                self.connect()
+                self.set_autocommit(False, force_begin_transaction_with_broken_autocommit=True)
+                self.needs_rollback = True
+                cursor = self.replay_history(history)
+                self.needs_rollback = needs_rollback
+                if autocommit:
+                    self.connection.commit()
+                    self.set_autocommit(autocommit)
+                self.closed_in_transaction = closed_in_transaction
+                self.in_atomic_block = in_atomic_block
+                self.in_write_transaction = in_write_transaction
+                self.savepoint_ids = savepoint_ids
+                self.failover_history = copy.deepcopy(history)
+                self.failover_history_size = history_size
+                self._in_handle_exc = False
+                return cursor
+        self._in_handle_exc = False
+        raise exc
 
     def replay_history(self, history):
         for x, entry in enumerate(history, start=1):
