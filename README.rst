@@ -60,6 +60,7 @@ Some features of django-galera can be configured to suit your needs by adding th
         'failover_enable': True,
         'failover_history_limit': 10000,
         'optimistic_transactions': True,
+        'reconnect_wait_time': 5.0,
         'wsrep_sync_after_write': True,
         'wsrep_sync_use_gtid': False,
     }
@@ -91,6 +92,10 @@ Some features of django-galera can be configured to suit your needs by adding th
       - bool
       - True
       - Enable optimistic transaction execution on secondary nodes, switching to primary node only once data is going to be changed. Depending on your application, you can disable this option if you have issues with data being changed by concurrent queries.
+    * - reconnect_wait_time
+      - float
+      - 5.0
+      - Wait time in seconds before reconnecting to another node after the current one failed
     * - wsrep_sync_after_write
       - bool
       - True
@@ -157,6 +162,7 @@ This is an annotated example configuration for a 3-node cluster.
                 'failover_enable': True,  # enable transparent failover with transaction replay
                 'failover_history_limit': 10000,  # disable replay for transactions reaching this limit (saves memory)
                 'optimistic_transactions': True,  # enable optimistic transaction execution on secondary node
+                'reconnect_wait_time': 5.0,  # wait time before connecting to a new node after the current one failed
                 'wsrep_sync_after_write': True,  # explicitly wait until writes from primary have been applied before reading from secondary
                 'wsrep_sync_use_gtid': False,  # use WSREP_SYNC_UPTO_GTID for syncing secondary node (currently not recommended because of drifting GTIDs)
                 # options are also attributes of django.db.connection and can be changed on the fly for the current connection

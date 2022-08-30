@@ -218,8 +218,6 @@ class DatabaseWrapper(base.DatabaseWrapper):
     _failover_enable = None
     _secondary_wrapper = None
 
-    _in_handle_exc = None
-
     def __init__(self, settings_dict, alias=DEFAULT_DB_ALIAS):
         self.base_settings = copy.deepcopy(settings_dict)
         NODE_STATE.add_nodes(self.base_settings.get('NODES', ()))
@@ -231,6 +229,7 @@ class DatabaseWrapper(base.DatabaseWrapper):
         self.failover_history = list()
         self.failover_history_limit = self.base_settings['OPTIONS'].pop('failover_history_limit', 10000)
         self.optimistic_transactions = self.base_settings['OPTIONS'].pop('optimistic_transactions', True)
+        self.reconnect_wait_time = self.base_settings['OPTIONS'].pop('reconnect_wait_time', 5.0)
         self.wsrep_sync_after_write = self.base_settings['OPTIONS'].pop('wsrep_sync_after_write', True)
         self.wsrep_sync_use_gtid = self.base_settings['OPTIONS'].pop('wsrep_sync_use_gtid', False)
         self._in_handle_exc = False
@@ -437,6 +436,13 @@ class DatabaseWrapper(base.DatabaseWrapper):
                     LOGGER.debug('Could not close connection after error: ' + str(e), exc_info=True)
 
                 LOGGER.warning('Replaying %d cursors from failover history after %s' % (len(history), str(exc)))
+
+                if error_code in (
+                    '1180',  # Got error 6 "No such device or address" during COMMIT
+                    '2006',  # MySQL server has gone away
+                    '2013',  # Lost connection to MySQL server during query
+                ):
+                    time.sleep(self.reconnect_wait_time)
 
                 self.connect()
                 self.set_autocommit(False, force_begin_transaction_with_broken_autocommit=True)
