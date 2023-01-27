@@ -107,7 +107,7 @@ Some features of django-galera can be configured to suit your needs by adding th
     * - wsrep_sync_use_gtid
       - bool
       - False
-      - Instead of using **wsrep_sync_wait**, django-galera can also utilize the more granular functions **wsrep_last_seen_gtid** and **wsrep_sync_wait_upto_gtid**. As GTIDs are still not fully consistent and may drift away between nodes, this feature is disabled by default and should not be used until the drifting is fixed in MariaDB Galera Cluster.
+      - Instead of using **wsrep_sync_wait**, django-galera can also utilize the more granular functions **wsrep_last_written_gtid** and **wsrep_sync_wait_upto_gtid**. As GTIDs are still not fully consistent and may drift away between nodes, this feature is disabled by default and should not be used until the drifting is fixed in MariaDB Galera Cluster.
 
 
 Application and database on the same machine
