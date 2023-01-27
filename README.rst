@@ -62,6 +62,7 @@ Some features of django-galera can be configured to suit your needs by adding th
         'optimistic_transactions': True,
         'reconnect_wait_time': 5.0,
         'wsrep_sync_after_write': True,
+        'wsrep_sync_timeout': 5,
         'wsrep_sync_use_gtid': False,
     }
 
