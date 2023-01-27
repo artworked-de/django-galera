@@ -231,6 +231,7 @@ class DatabaseWrapper(base.DatabaseWrapper):
         self.optimistic_transactions = self.base_settings['OPTIONS'].pop('optimistic_transactions', True)
         self.reconnect_wait_time = self.base_settings['OPTIONS'].pop('reconnect_wait_time', 5.0)
         self.wsrep_sync_after_write = self.base_settings['OPTIONS'].pop('wsrep_sync_after_write', True)
+        self.wsrep_sync_timeout = self.base_settings['OPTIONS'].pop('wsrep_sync_timeout', 5)
         self.wsrep_sync_use_gtid = self.base_settings['OPTIONS'].pop('wsrep_sync_use_gtid', False)
         self._in_handle_exc = False
         super(DatabaseWrapper, self).__init__(self.base_settings, alias=alias)
@@ -384,7 +385,7 @@ class DatabaseWrapper(base.DatabaseWrapper):
                     if self.wsrep_sync_use_gtid:
                         self._wsrep_sync_wait_upto_gtid()
                     else:
-                        self._wsrep_sync_wait(self.secondary_wrapper.connection)
+                        self._wsrep_sync_wait()
                 except Exception as e:
                     error_code = str(e.args[0]) if e.args else ''
                     if retry < 3 and error_code == '1205':  # Lock wait timeout exceeded; try restarting transaction
@@ -484,16 +485,17 @@ class DatabaseWrapper(base.DatabaseWrapper):
         # return a new cursor if history is empty
         return self.connection.cursor()
 
-    def _wsrep_sync_wait(self, connection):
-        with connection.cursor() as cursor:
+    def _wsrep_sync_wait(self):
+        with self.secondary_wrapper.connection.cursor() as cursor:
             cursor.execute(
                 'SET @lock_wait_timeout_orig = @@lock_wait_timeout;'
                 'SET @wsrep_sync_wait_orig = @@wsrep_sync_wait;'
-                'SET SESSION lock_wait_timeout = 5;'
+                'SET SESSION lock_wait_timeout = %s;'
                 'SET SESSION wsrep_sync_wait = 1;'
                 'SELECT 1;'
                 'SET SESSION lock_wait_timeout = @lock_wait_timeout_orig;'
-                'SET SESSION wsrep_sync_wait = @wsrep_sync_wait_orig;'
+                'SET SESSION wsrep_sync_wait = @wsrep_sync_wait_orig;',
+                (self.wsrep_sync_timeout,)
             )
 
     def _wsrep_sync_wait_upto_gtid(self):
@@ -502,5 +504,11 @@ class DatabaseWrapper(base.DatabaseWrapper):
             result = primary_cursor.fetchone()
             primary_gtid = result[0].decode('utf-8')
         with self.secondary_wrapper.connection.cursor() as secondary_cursor:
-            secondary_cursor.execute('SELECT WSREP_SYNC_WAIT_UPTO_GTID(%s)', (primary_gtid,))
+            secondary_cursor.execute(
+                'SET @lock_wait_timeout_orig = @@lock_wait_timeout;'
+                'SET SESSION lock_wait_timeout = %s;'
+                'SELECT WSREP_SYNC_WAIT_UPTO_GTID(%s);'
+                'SET SESSION lock_wait_timeout = @lock_wait_timeout_orig;',
+                (self.wsrep_sync_timeout, primary_gtid,)
+            )
             LOGGER.debug('Secondary sync upto %s' % primary_gtid)

@@ -100,6 +100,10 @@ Some features of django-galera can be configured to suit your needs by adding th
       - bool
       - True
       - Although Galera allows replication to be almost instantaneous, it is still possible that changes written to the primary node have not yet been applied to the secondary node. If this option is set to True, django-galera will block until all changes have been written to the secondary node by making use of the variable **wsrep_sync_wait**.
+    * - wsrep_sync_timeout
+      - int
+      - 5
+      - Wait upto this number of seconds for the transaction to be applied. If replication takes longer, consider the current secondary node as failed and connect to the next available one.
     * - wsrep_sync_use_gtid
       - bool
       - False
@@ -164,6 +168,7 @@ This is an annotated example configuration for a 3-node cluster.
                 'optimistic_transactions': True,  # enable optimistic transaction execution on secondary node
                 'reconnect_wait_time': 5.0,  # wait time before connecting to a new node after the current one failed
                 'wsrep_sync_after_write': True,  # explicitly wait until writes from primary have been applied before reading from secondary
+                'wsrep_sync_timeout': 5,  # wait upto this number of seconds for writes being applied to secondary
                 'wsrep_sync_use_gtid': False,  # use WSREP_SYNC_UPTO_GTID for syncing secondary node (currently not recommended because of drifting GTIDs)
                 # options are also attributes of django.db.connection and can be changed on the fly for the current connection
             },
