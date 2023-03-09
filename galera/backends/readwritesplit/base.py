@@ -412,8 +412,10 @@ class DatabaseWrapper(base.DatabaseWrapper):
                     '2006',  # MySQL server has gone away
                     '2013',  # Lost connection to MySQL server during query
             ):
+                atomic_blocks = copy.deepcopy(self.atomic_blocks)
                 autocommit = self.autocommit
                 closed_in_transaction = self.closed_in_transaction
+                commit_on_exit = self.commit_on_exit
                 in_atomic_block = self.in_atomic_block
                 in_write_transaction = self.in_write_transaction
                 needs_rollback = self.needs_rollback
@@ -450,10 +452,12 @@ class DatabaseWrapper(base.DatabaseWrapper):
                 self.needs_rollback = True
                 cursor = self.replay_history(history)
                 self.needs_rollback = needs_rollback
+                self.atomic_blocks = atomic_blocks
                 if autocommit:
                     self.connection.commit()
                     self.set_autocommit(autocommit)
                 self.closed_in_transaction = closed_in_transaction
+                self.commit_on_exit = commit_on_exit
                 self.in_atomic_block = in_atomic_block
                 self.in_write_transaction = in_write_transaction
                 self.savepoint_ids = savepoint_ids
