@@ -449,7 +449,8 @@ class DatabaseWrapper(base.DatabaseWrapper):
                     time.sleep(self.reconnect_wait_time)
 
                 self.connect()
-                self.set_autocommit(False, force_begin_transaction_with_broken_autocommit=True)
+                self.connection.autocommit(False)
+                self.autocommit = False
                 self.needs_rollback = True
                 cursor = self.replay_history(history)
                 self.needs_rollback = needs_rollback
