@@ -8,10 +8,10 @@ with open(readme) as f:
 
 setup(
     name='django-galera',
-    version='1.1.2',
+    version='1.1.3',
     description='Django database backend for MariaDB Galera Cluster',
     long_description=long_description,
-    url='https://github.com/pogowurst/django-galera',
+    url='https://github.com/artworked-de/django-galera',
     author='Steve Hunger',
     author_email='steve@artworked.de',
     license='MIT',
@@ -45,6 +45,6 @@ setup(
         'Framework :: Django :: 4.1',
     ],
     install_requires=[
-        'django>=2.2'
+        'django>=3.2'
     ]
 )
